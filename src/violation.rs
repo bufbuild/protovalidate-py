@@ -198,6 +198,30 @@ fn resolve_values(
     Ok((field_value, rule_value))
 }
 
+/// One hop of a path walk: resolves the element's field on `current` and
+/// reads its value, returning both.
+///
+/// Re-resolving per hop keeps each step's descriptor at hand and makes
+/// "not a message" fall out of resolution failing. `None` when the element
+/// does not resolve.
+fn step_element<'py>(
+    py: Python<'py>,
+    current: &Bound<'py, PyAny>,
+    element: &Bound<'py, PyAny>,
+    constants: &Constants,
+) -> PyResult<Option<(Bound<'py, PyAny>, Bound<'py, PyAny>)>> {
+    let Ok(hop) = ProtoAdapter::resolve(current, constants) else {
+        return Ok(None);
+    };
+    let Some(field) = hop.find_field(py, element, constants)? else {
+        return Ok(None);
+    };
+    let Ok(value) = hop.runtime.read_field(current, &field, constants) else {
+        return Ok(None);
+    };
+    Ok(Some((value, field)))
+}
+
 /// Walks a field path over the validated message.
 ///
 /// Returns the value and the field the path ended on; the latter owns the rules
@@ -225,18 +249,10 @@ fn walk_field_path<'py>(
     let mut leaf: Option<Bound<'py, PyAny>> = None;
     for (index, element) in elements.try_iter()?.enumerate() {
         let element = element?;
-        // Re-resolving per hop keeps each step's descriptor at hand and makes
-        // "not a message" fall out of resolution failing.
-        let Ok(hop) = ProtoAdapter::resolve(&current, constants) else {
+        let Some((value, field)) = step_element(py, &current, &element, constants)? else {
             return Ok((py.None(), None));
         };
-        let Some(field) = hop.find_field(py, &element, constants)? else {
-            return Ok((py.None(), None));
-        };
-        leaf = Some(field.clone());
-        let Ok(value) = hop.runtime.read_field(&current, &field, constants) else {
-            return Ok((py.None(), None));
-        };
+        leaf = Some(field);
         current = value;
 
         let subscript = element.getattr(&constants.subscript)?;
@@ -298,13 +314,7 @@ fn resolve_rule_value<'py>(
         let element = element?;
         // The rules are messages of whichever runtime parsed the options;
         // per-hop resolution handles them uniformly.
-        let Ok(hop) = ProtoAdapter::resolve(&current, constants) else {
-            return Ok(py.None());
-        };
-        let Some(field) = hop.find_field(py, &element, constants)? else {
-            return Ok(py.None());
-        };
-        let Ok(value) = hop.runtime.read_field(&current, &field, constants) else {
+        let Some((value, _)) = step_element(py, &current, &element, constants)? else {
             return Ok(py.None());
         };
         current = value;

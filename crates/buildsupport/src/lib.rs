@@ -196,6 +196,13 @@ impl CxxLib {
         self
     }
 
+    /// Adds the defines required to compile against the vendored ANTLR4 C++
+    /// runtime headers, in the runtime itself and its dependents alike.
+    pub fn antlr4_defines(&mut self) -> &mut Self {
+        self.define("ANTLR4CPP_STATIC", None)
+            .define("ANTLR4CPP_USING_ABSEIL", None)
+    }
+
     /// Adds every translation unit in `filelist.txt`, resolved against `root`.
     pub fn files_from_filelist(&mut self, root: &Path) -> &mut Self {
         for file in read_filelist() {

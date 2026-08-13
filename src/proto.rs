@@ -74,7 +74,7 @@ impl ProtoAdapter {
 
     /// The message's fully qualified type name.
     pub(crate) fn type_name<'py>(
-        &'py self,
+        &self,
         py: Python<'py>,
         constants: &Constants,
     ) -> PyResult<Bound<'py, PyString>> {

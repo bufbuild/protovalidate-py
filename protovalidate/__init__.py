@@ -35,12 +35,15 @@ from ._gen.buf.validate.validate_pb import (
 from ._protovalidate import Validator, Violation
 
 if TYPE_CHECKING:
+    from google.protobuf import message as google_message
     from protobuf import Message
 
 _default_validator = Validator()
 
 
-def validate(message: Message, *, fail_fast: bool = False) -> None:
+def validate(
+    message: Message | google_message.Message, *, fail_fast: bool = False
+) -> None:
     """Validates the given message against the static rules defined in the message's descriptor using a shared validator.
 
     Parameters:
@@ -49,13 +52,16 @@ def validate(message: Message, *, fail_fast: bool = False) -> None:
 
     Raises:
         CompilationError: If the static rules could not be compiled.
+        EvaluationError: If a rule failed while being evaluated.
         ValidationError: If the message is invalid. The violations raised as part of this error should
             always be equal to the list of violations returned by `collect_violations`.
     """
     return _default_validator.validate(message, fail_fast=fail_fast)
 
 
-def collect_violations(message: Message, *, fail_fast: bool = False) -> list[Violation]:
+def collect_violations(
+    message: Message | google_message.Message, *, fail_fast: bool = False
+) -> list[Violation]:
     """Collects the violations for the given message against the static rules defined in the message's descriptor using a shared validator.
 
     Parameters:
@@ -67,6 +73,7 @@ def collect_violations(message: Message, *, fail_fast: bool = False) -> list[Vio
 
     Raises:
         CompilationError: If the static rules could not be compiled.
+        EvaluationError: If a rule failed while being evaluated.
     """
     return _default_validator.collect_violations(message, fail_fast=fail_fast)
 

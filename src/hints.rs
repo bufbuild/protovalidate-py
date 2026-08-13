@@ -20,20 +20,23 @@ use std::convert::Infallible;
 use pyo3::inspect::PyStaticExpr;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use pyo3::{Borrowed, type_hint_identifier, type_hint_subscript};
+use pyo3::{Borrowed, type_hint_identifier, type_hint_subscript, type_hint_union};
 
 use crate::violation::Violation;
 
 const VALIDATE_PB: &str = "protovalidate._gen.buf.validate.validate_pb";
 
-/// A protobuf message of either runtime, hinted as protobuf-py's `Message`.
+/// A protobuf message of either runtime, hinted as the union of both.
 #[derive(Clone, Copy)]
 pub(crate) struct PbMessage<'a, 'py>(pub(crate) Borrowed<'a, 'py, PyAny>);
 
 impl<'a, 'py> FromPyObject<'a, 'py> for PbMessage<'a, 'py> {
     type Error = Infallible;
 
-    const INPUT_TYPE: PyStaticExpr = type_hint_identifier!("protobuf", "Message");
+    const INPUT_TYPE: PyStaticExpr = type_hint_union!(
+        type_hint_identifier!("protobuf", "Message"),
+        type_hint_identifier!("google.protobuf.message", "Message")
+    );
 
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         Ok(Self(obj))

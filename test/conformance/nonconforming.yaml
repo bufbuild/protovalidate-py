@@ -11,11 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-# Expected conformance failures for the native (protovalidate-cc) backend.
-#
-# This engine performs no validation of its own, so its conformance behaviour is
-# protovalidate-cc's. When a case fails here, compare against
-# protovalidate-cc's own expected_failures.yaml before assuming the binding is
-# at fault: a shared failure belongs upstream, while a failure that appears only
-# here points at the descriptor bridge in protovalidate/_native.py.

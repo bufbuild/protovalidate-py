@@ -15,7 +15,8 @@
 
 from typing import Any, final
 
-from protobuf import Message, Registry
+from google.protobuf.message import Message
+from protobuf import Message as Message2, Registry
 
 from protovalidate._gen.buf.validate.validate_pb import (
     FieldPath,
@@ -41,7 +42,7 @@ class Validator:
                 predefined-rule extensions. If omitted, only standard rules are applied.
         """
     def collect_violations(
-        self, /, message: Message, *, fail_fast: bool = False
+        self, /, message: Message2 | Message, *, fail_fast: bool = False
     ) -> list[Violation]:
         """Validates the given message against the static rules defined in the message's descriptor.
 
@@ -60,8 +61,11 @@ class Validator:
 
         Raises:
             CompilationError: If the static rules could not be compiled.
+            EvaluationError: If a rule failed while being evaluated.
         """
-    def validate(self, /, message: Message, *, fail_fast: bool = False) -> None:
+    def validate(
+        self, /, message: Message2 | Message, *, fail_fast: bool = False
+    ) -> None:
         """Validate the given message against the static rules defined in the message's descriptor.
 
         Parameters:
@@ -70,6 +74,7 @@ class Validator:
 
         Raises:
             CompilationError: If the static rules could not be compiled.
+            EvaluationError: If a rule failed while being evaluated.
             ValidationError: If the message is invalid. The violations raised as part of this error should
                 always be equal to the list of violations returned by `collect_violations`.
         """

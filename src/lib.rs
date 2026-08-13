@@ -105,6 +105,7 @@ impl Validator {
     ///
     /// Raises:
     ///     CompilationError: If the static rules could not be compiled.
+    ///     EvaluationError: If a rule failed while being evaluated.
     ///     ValidationError: If the message is invalid. The violations raised as part of this error should
     ///         always be equal to the list of violations returned by `collect_violations`.
     #[allow(clippy::doc_markdown)] // A Python docstring.
@@ -115,11 +116,10 @@ impl Validator {
         message: PbMessage<'_, '_>,
         fail_fast: bool,
     ) -> PyResult<()> {
-        let violations = self.collect_violations(py, message, fail_fast)?;
+        let (adapter, violations) = self.collect(py, message, fail_fast)?;
         if violations.0.is_empty() {
             return Ok(());
         }
-        let adapter = ProtoAdapter::resolve(&message.0, &self.constants)?;
         let name = adapter
             .descriptor(py)
             .getattr(&self.constants.name)?
@@ -147,6 +147,7 @@ impl Validator {
     ///
     /// Raises:
     ///     CompilationError: If the static rules could not be compiled.
+    ///     EvaluationError: If a rule failed while being evaluated.
     #[allow(clippy::doc_markdown)] // A Python docstring.
     #[pyo3(signature = (message, *, fail_fast = false))]
     fn collect_violations<'py>(
@@ -155,6 +156,18 @@ impl Validator {
         message: PbMessage<'_, 'py>,
         fail_fast: bool,
     ) -> PyResult<ViolationList<'py>> {
+        Ok(self.collect(py, message, fail_fast)?.1)
+    }
+}
+
+impl Validator {
+    /// Resolves a message and collects its violations.
+    fn collect<'py>(
+        &self,
+        py: Python<'py>,
+        message: PbMessage<'_, 'py>,
+        fail_fast: bool,
+    ) -> PyResult<(ProtoAdapter, ViolationList<'py>)> {
         let adapter = ProtoAdapter::resolve(&message.0, &self.constants)?;
         let file = adapter.descriptor(py).getattr(&self.constants.file)?;
         self.register(py, &file, &adapter)?;
@@ -165,9 +178,11 @@ impl Validator {
         let Some(serialized) =
             self.evaluate(py, type_name.to_str()?, payload.as_bytes(), fail_fast)?
         else {
-            return Ok(ViolationList(PyList::empty(py)));
+            // `descriptor` keeps the adapter borrowed for `'py`, so hand the
+            // caller a cheap reference clone rather than the local.
+            return Ok((adapter.clone_ref(py), ViolationList(PyList::empty(py))));
         };
-        violation::build_violations(
+        let violations = violation::build_violations(
             py,
             &serialized,
             &message.0,
@@ -175,11 +190,9 @@ impl Validator {
             &self.constants,
             &self.imports,
         )
-        .map(ViolationList)
+        .map(ViolationList)?;
+        Ok((adapter.clone_ref(py), violations))
     }
-}
-
-impl Validator {
     /// Registers every descriptor file a registry contributes.
     fn add_registry(&self, py: Python<'_>, registry: &Bound<'_, PyAny>) -> PyResult<()> {
         let mut registered = self.registered.write_py_attached(py).unwrap();

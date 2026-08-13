@@ -4,8 +4,7 @@ fn main() {
     let mut lib = buildsupport::CxxLib::new("protovalidate");
     lib.include(&vendor)
         .include_deps(&["celcpp", "absl", "protobuf", "re2", "antlr4rt"])
-        .define("ANTLR4CPP_STATIC", None)
-        .define("ANTLR4CPP_USING_ABSEIL", None)
+        .antlr4_defines()
         .files_from_filelist(&vendor);
 
     // The C ABI the Rust bindings call through.

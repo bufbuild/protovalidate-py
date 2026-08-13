@@ -30,7 +30,7 @@ from ....buf.validate import validate_pb2 as buf_dot_validate_dot_validate__pb2
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"tests/example/v1/validations.proto\x12\x10tests.example.v1\x1a\x1b\x62uf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"T\n\x13MultipleValidations\x12 \n\x05title\x18\x01 \x01(\tB\n\xbaH\x07r\x05:\x03\x66ooR\x05title\x12\x1b\n\x04name\x18\x02 \x01(\tB\x07\xbaH\x04r\x02\x10\x05R\x04name\")\n\x0c\x44oubleFinite\x12\x19\n\x03val\x18\x01 \x01(\x01\x42\x07\xbaH\x04\x12\x02@\x01R\x03val\";\n\x0eSFixed64ExLTGT\x12)\n\x03val\x18\x01 \x01(\x10\x42\x17\xbaH\x14\x62\x12\x11\x00\x00\x00\x00\x00\x00\x00\x00!\n\x00\x00\x00\x00\x00\x00\x00R\x03val\")\n\x0cTestOneofMsg\x12\x19\n\x03val\x18\x01 \x01(\x08\x42\x07\xbaH\x04j\x02\x08\x01R\x03val\"q\n\x05Oneof\x12\x1a\n\x01x\x18\x01 \x01(\tB\n\xbaH\x07r\x05:\x03\x66ooH\x00R\x01x\x12\x17\n\x01y\x18\x02 \x01(\x05\x42\x07\xbaH\x04\x1a\x02 \x00H\x00R\x01y\x12.\n\x01z\x18\x03 \x01(\x0b\x32\x1e.tests.example.v1.TestOneofMsgH\x00R\x01zB\x03\n\x01o\"[\n\x12ProtovalidateOneof\x12\x0c\n\x01\x61\x18\x01 \x01(\tR\x01\x61\x12\x0c\n\x01\x62\x18\x02 \x01(\tR\x01\x62\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x0b\xbaH\x08\"\x06\n\x01\x61\n\x01\x62\"e\n\x1aProtovalidateOneofRequired\x12\x0c\n\x01\x61\x18\x01 \x01(\tR\x01\x61\x12\x0c\n\x01\x62\x18\x02 \x01(\tR\x01\x62\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\r\xbaH\n\"\x08\n\x01\x61\n\x01\x62\x10\x01\"p\n\"ProtovalidateOneofUnknownFieldName\x12\x0c\n\x01\x61\x18\x01 \x01(\tR\x01\x61\x12\x0c\n\x01\x62\x18\x02 \x01(\tR\x01\x62\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x10\xbaH\r\"\x0b\n\x01\x61\n\x01\x62\n\x03xxx\"H\n\x0eTimestampGTNow\x12\x36\n\x03val\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.TimestampB\x08\xbaH\x05\xb2\x01\x02@\x01R\x03val\"\x87\x01\n\tMapMinMax\x12\x42\n\x03val\x18\x01 \x03(\x0b\x32$.tests.example.v1.MapMinMax.ValEntryB\n\xbaH\x07\x9a\x01\x04\x08\x02\x10\x04R\x03val\x1a\x36\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x08R\x05value:\x02\x38\x01\"\x85\x01\n\x07MapKeys\x12\x42\n\x03val\x18\x01 \x03(\x0b\x32\".tests.example.v1.MapKeys.ValEntryB\x0c\xbaH\t\x9a\x01\x06\"\x04\x42\x02\x10\x00R\x03val\x1a\x36\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\x12R\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value:\x02\x38\x01\"\"\n\x05\x45mbed\x12\x19\n\x03val\x18\x01 \x01(\x03\x42\x07\xbaH\x04\"\x02 \x00R\x03val\"K\n\x11RepeatedEmbedSkip\x12\x36\n\x03val\x18\x01 \x03(\x0b\x32\x17.tests.example.v1.EmbedB\x0b\xbaH\x08\x92\x01\x05\"\x03\xd8\x01\x03R\x03val\"3\n\x0fInvalidRESyntax\x12 \n\x05value\x18\x01 \x01(\tB\n\xbaH\x07r\x05\x32\x03^\\zR\x05value\"\xa9\x01\n\x12\x43oncatenatedValues\x12\x10\n\x03\x62\x61r\x18\x01 \x03(\tR\x03\x62\x61r\x12\x10\n\x03\x62\x61z\x18\x02 \x03(\tR\x03\x62\x61z:o\xbaHl\x1aj\n\x15globally_unique_names\x12\x31\x61ll values in bar and baz must be globally unique\x1a\x1e(this.bar + this.baz).unique()B\x8a\x01\n\x14\x63om.tests.example.v1B\x10ValidationsProtoP\x01\xa2\x02\x03TEX\xaa\x02\x10Tests.Example.V1\xca\x02\x10Tests\\Example\\V1\xe2\x02\x1cTests\\Example\\V1\\GPBMetadata\xea\x02\x12Tests::Example::V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"tests/example/v1/validations.proto\x12\x10tests.example.v1\x1a\x1b\x62uf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"T\n\x13MultipleValidations\x12 \n\x05title\x18\x01 \x01(\tB\n\xbaH\x07r\x05:\x03\x66ooR\x05title\x12\x1b\n\x04name\x18\x02 \x01(\tB\x07\xbaH\x04r\x02\x10\x05R\x04name\")\n\x0c\x44oubleFinite\x12\x19\n\x03val\x18\x01 \x01(\x01\x42\x07\xbaH\x04\x12\x02@\x01R\x03val\";\n\x0eSFixed64ExLTGT\x12)\n\x03val\x18\x01 \x01(\x10\x42\x17\xbaH\x14\x62\x12\x11\x00\x00\x00\x00\x00\x00\x00\x00!\n\x00\x00\x00\x00\x00\x00\x00R\x03val\")\n\x0cTestOneofMsg\x12\x19\n\x03val\x18\x01 \x01(\x08\x42\x07\xbaH\x04j\x02\x08\x01R\x03val\"q\n\x05Oneof\x12\x1a\n\x01x\x18\x01 \x01(\tB\n\xbaH\x07r\x05:\x03\x66ooH\x00R\x01x\x12\x17\n\x01y\x18\x02 \x01(\x05\x42\x07\xbaH\x04\x1a\x02 \x00H\x00R\x01y\x12.\n\x01z\x18\x03 \x01(\x0b\x32\x1e.tests.example.v1.TestOneofMsgH\x00R\x01zB\x03\n\x01o\"[\n\x12ProtovalidateOneof\x12\x0c\n\x01\x61\x18\x01 \x01(\tR\x01\x61\x12\x0c\n\x01\x62\x18\x02 \x01(\tR\x01\x62\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x0b\xbaH\x08\"\x06\n\x01\x61\n\x01\x62\"e\n\x1aProtovalidateOneofRequired\x12\x0c\n\x01\x61\x18\x01 \x01(\tR\x01\x61\x12\x0c\n\x01\x62\x18\x02 \x01(\tR\x01\x62\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\r\xbaH\n\"\x08\n\x01\x61\n\x01\x62\x10\x01\"p\n\"ProtovalidateOneofUnknownFieldName\x12\x0c\n\x01\x61\x18\x01 \x01(\tR\x01\x61\x12\x0c\n\x01\x62\x18\x02 \x01(\tR\x01\x62\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x10\xbaH\r\"\x0b\n\x01\x61\n\x01\x62\n\x03xxx\"9\n\x19ProtovalidateMistypedRule\x12\x1c\n\x03val\x18\x01 \x01(\tB\n\xbaH\x07\xaa\x01\x04*\x02\x08\x01R\x03val\"H\n\x0eTimestampGTNow\x12\x36\n\x03val\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.TimestampB\x08\xbaH\x05\xb2\x01\x02@\x01R\x03val\"\x87\x01\n\tMapMinMax\x12\x42\n\x03val\x18\x01 \x03(\x0b\x32$.tests.example.v1.MapMinMax.ValEntryB\n\xbaH\x07\x9a\x01\x04\x08\x02\x10\x04R\x03val\x1a\x36\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x08R\x05value:\x02\x38\x01\"\x85\x01\n\x07MapKeys\x12\x42\n\x03val\x18\x01 \x03(\x0b\x32\".tests.example.v1.MapKeys.ValEntryB\x0c\xbaH\t\x9a\x01\x06\"\x04\x42\x02\x10\x00R\x03val\x1a\x36\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\x12R\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value:\x02\x38\x01\"\"\n\x05\x45mbed\x12\x19\n\x03val\x18\x01 \x01(\x03\x42\x07\xbaH\x04\"\x02 \x00R\x03val\"K\n\x11RepeatedEmbedSkip\x12\x36\n\x03val\x18\x01 \x03(\x0b\x32\x17.tests.example.v1.EmbedB\x0b\xbaH\x08\x92\x01\x05\"\x03\xd8\x01\x03R\x03val\"3\n\x0fInvalidRESyntax\x12 \n\x05value\x18\x01 \x01(\tB\n\xbaH\x07r\x05\x32\x03^\\zR\x05value\"\xa9\x01\n\x12\x43oncatenatedValues\x12\x10\n\x03\x62\x61r\x18\x01 \x03(\tR\x03\x62\x61r\x12\x10\n\x03\x62\x61z\x18\x02 \x03(\tR\x03\x62\x61z:o\xbaHl\x1aj\n\x15globally_unique_names\x12\x31\x61ll values in bar and baz must be globally unique\x1a\x1e(this.bar + this.baz).unique()B\x8a\x01\n\x14\x63om.tests.example.v1B\x10ValidationsProtoP\x01\xa2\x02\x03TEX\xaa\x02\x10Tests.Example.V1\xca\x02\x10Tests\\Example\\V1\xe2\x02\x1cTests\\Example\\V1\\GPBMetadata\xea\x02\x12Tests::Example::V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -58,6 +58,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_PROTOVALIDATEONEOFREQUIRED']._serialized_options = b'\272H\n\"\010\n\001a\n\001b\020\001'
   _globals['_PROTOVALIDATEONEOFUNKNOWNFIELDNAME']._loaded_options = None
   _globals['_PROTOVALIDATEONEOFUNKNOWNFIELDNAME']._serialized_options = b'\272H\r\"\013\n\001a\n\001b\n\003xxx'
+  _globals['_PROTOVALIDATEMISTYPEDRULE'].fields_by_name['val']._loaded_options = None
+  _globals['_PROTOVALIDATEMISTYPEDRULE'].fields_by_name['val']._serialized_options = b'\272H\007\252\001\004*\002\010\001'
   _globals['_TIMESTAMPGTNOW'].fields_by_name['val']._loaded_options = None
   _globals['_TIMESTAMPGTNOW'].fields_by_name['val']._serialized_options = b'\272H\005\262\001\002@\001'
   _globals['_MAPMINMAX_VALENTRY']._loaded_options = None
@@ -92,22 +94,24 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_PROTOVALIDATEONEOFREQUIRED']._serialized_end=660
   _globals['_PROTOVALIDATEONEOFUNKNOWNFIELDNAME']._serialized_start=662
   _globals['_PROTOVALIDATEONEOFUNKNOWNFIELDNAME']._serialized_end=774
-  _globals['_TIMESTAMPGTNOW']._serialized_start=776
-  _globals['_TIMESTAMPGTNOW']._serialized_end=848
-  _globals['_MAPMINMAX']._serialized_start=851
-  _globals['_MAPMINMAX']._serialized_end=986
-  _globals['_MAPMINMAX_VALENTRY']._serialized_start=932
-  _globals['_MAPMINMAX_VALENTRY']._serialized_end=986
-  _globals['_MAPKEYS']._serialized_start=989
-  _globals['_MAPKEYS']._serialized_end=1122
-  _globals['_MAPKEYS_VALENTRY']._serialized_start=1068
-  _globals['_MAPKEYS_VALENTRY']._serialized_end=1122
-  _globals['_EMBED']._serialized_start=1124
-  _globals['_EMBED']._serialized_end=1158
-  _globals['_REPEATEDEMBEDSKIP']._serialized_start=1160
-  _globals['_REPEATEDEMBEDSKIP']._serialized_end=1235
-  _globals['_INVALIDRESYNTAX']._serialized_start=1237
-  _globals['_INVALIDRESYNTAX']._serialized_end=1288
-  _globals['_CONCATENATEDVALUES']._serialized_start=1291
-  _globals['_CONCATENATEDVALUES']._serialized_end=1460
+  _globals['_PROTOVALIDATEMISTYPEDRULE']._serialized_start=776
+  _globals['_PROTOVALIDATEMISTYPEDRULE']._serialized_end=833
+  _globals['_TIMESTAMPGTNOW']._serialized_start=835
+  _globals['_TIMESTAMPGTNOW']._serialized_end=907
+  _globals['_MAPMINMAX']._serialized_start=910
+  _globals['_MAPMINMAX']._serialized_end=1045
+  _globals['_MAPMINMAX_VALENTRY']._serialized_start=991
+  _globals['_MAPMINMAX_VALENTRY']._serialized_end=1045
+  _globals['_MAPKEYS']._serialized_start=1048
+  _globals['_MAPKEYS']._serialized_end=1181
+  _globals['_MAPKEYS_VALENTRY']._serialized_start=1127
+  _globals['_MAPKEYS_VALENTRY']._serialized_end=1181
+  _globals['_EMBED']._serialized_start=1183
+  _globals['_EMBED']._serialized_end=1217
+  _globals['_REPEATEDEMBEDSKIP']._serialized_start=1219
+  _globals['_REPEATEDEMBEDSKIP']._serialized_end=1294
+  _globals['_INVALIDRESYNTAX']._serialized_start=1296
+  _globals['_INVALIDRESYNTAX']._serialized_end=1347
+  _globals['_CONCATENATEDVALUES']._serialized_start=1350
+  _globals['_CONCATENATEDVALUES']._serialized_end=1519
 # @@protoc_insertion_point(module_scope)

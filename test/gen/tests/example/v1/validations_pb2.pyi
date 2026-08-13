@@ -86,6 +86,12 @@ class ProtovalidateOneofUnknownFieldName(_message.Message):
     unrelated: bool
     def __init__(self, a: _Optional[str] = ..., b: _Optional[str] = ..., unrelated: bool = ...) -> None: ...
 
+class ProtovalidateMistypedRule(_message.Message):
+    __slots__ = ("val",)
+    VAL_FIELD_NUMBER: _ClassVar[int]
+    val: str
+    def __init__(self, val: _Optional[str] = ...) -> None: ...
+
 class TimestampGTNow(_message.Message):
     __slots__ = ("val",)
     VAL_FIELD_NUMBER: _ClassVar[int]

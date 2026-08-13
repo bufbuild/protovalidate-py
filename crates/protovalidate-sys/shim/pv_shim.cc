@@ -20,10 +20,12 @@
 #include <string>
 #include <utility>
 
+#include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "buf/validate/validator.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
@@ -63,11 +65,14 @@ void SetError(char** error, const std::string& message) {
   if (error != nullptr) *error = CopyCString(message);
 }
 
-// Mirrors the mapping protovalidate-cc's own conformance runner uses, in
-// buf/validate/conformance/runner.cc: InvalidArgument means a rule failed while
-// being evaluated, FailedPrecondition means it could not be compiled. Having
-// these the wrong way round makes conformance report compilation errors where
-// it expects runtime errors.
+// Classifies a status from Validate, which runs only after CompileRules has
+// accepted every message type reachable from the descriptor, so a failure
+// here happened while rules were being evaluated. The mapping mirrors
+// protovalidate-cc's own conformance runner, in
+// buf/validate/conformance/runner.cc: InvalidArgument means a rule failed
+// while being evaluated. FailedPrecondition means compilation, reachable
+// only for types CompileRules cannot see ahead of time, such as a message
+// unpacked out of an Any.
 int ClassifyStatus(const absl::Status& status) {
   switch (status.code()) {
     case absl::StatusCode::kInvalidArgument:
@@ -77,6 +82,42 @@ int ClassifyStatus(const absl::Status& status) {
     default:
       return PV_ERR_UNEXPECTED;
   }
+}
+
+// Compiles the rules of a message type and every message type reachable from
+// its fields.
+//
+// Rules otherwise compile lazily inside Validate, and protovalidate-cc
+// reports some compile-time failures with the same status code as runtime
+// CEL failures (NewFieldRules in buf/validate/internal/field_rules.cc returns
+// InvalidArgument for a rule whose type does not match its field), so the
+// status of Validate alone cannot tell the two apart. Compiling ahead keeps
+// the phases separate: a failure here is a compilation error, classified as
+// such.
+//
+// The walk cannot rely on Add's own field recursion: Add returns a cached
+// per-descriptor status without revisiting fields, so once a type has
+// compiled cleanly, only walking the fields here resurfaces an error cached
+// for one of its nested types. `seen` breaks recursion cycles.
+absl::Status CompileRules(
+    buf::validate::ValidatorFactory& factory,
+    const google::protobuf::Descriptor* descriptor,
+    absl::flat_hash_set<const google::protobuf::Descriptor*>& seen) {
+  if (!seen.insert(descriptor).second) return absl::OkStatus();
+  if (absl::Status status = factory.Add(descriptor); !status.ok()) {
+    return status;
+  }
+  for (int i = 0; i < descriptor->field_count(); i++) {
+    const google::protobuf::FieldDescriptor* field = descriptor->field(i);
+    if (field->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE) {
+      continue;
+    }
+    if (absl::Status status = CompileRules(factory, field->message_type(), seen);
+        !status.ok()) {
+      return status;
+    }
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace
@@ -105,6 +146,12 @@ struct pv_engine {
   google::protobuf::DescriptorPool pool;
   google::protobuf::DynamicMessageFactory message_factory;
   std::unique_ptr<buf::validate::ValidatorFactory> validator_factory;
+  // Message types whose reachable rules have compiled cleanly, so the steady
+  // state skips the CompileRules walk. Types that failed stay out and are
+  // walked again, keeping the error a compilation error on every call.
+  absl::Mutex compiled_mutex;
+  absl::flat_hash_set<const google::protobuf::Descriptor*> compiled
+      ABSL_GUARDED_BY(compiled_mutex);
 };
 
 extern "C" {
@@ -155,6 +202,23 @@ int pv_engine_validate(pv_engine* engine, const char* type_name,
   if (descriptor == nullptr) {
     SetError(error, absl::StrCat("unknown message type: ", name));
     return PV_ERR_ARGUMENT;
+  }
+
+  bool known;
+  {
+    absl::ReaderMutexLock lock(&engine->compiled_mutex);
+    known = engine->compiled.contains(descriptor);
+  }
+  if (!known) {
+    absl::flat_hash_set<const google::protobuf::Descriptor*> seen;
+    absl::Status compiled =
+        CompileRules(*engine->validator_factory, descriptor, seen);
+    if (!compiled.ok()) {
+      SetError(error, std::string(compiled.message()));
+      return PV_ERR_COMPILATION;
+    }
+    absl::WriterMutexLock lock(&engine->compiled_mutex);
+    engine->compiled.insert(descriptor);
   }
 
   google::protobuf::Arena arena;

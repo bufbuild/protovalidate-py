@@ -126,6 +126,16 @@ def test_protovalidate_oneof_unknown_field_name(validator: ValidatorProtocol) ->
 
 
 @pytest.mark.parametrize("validator", validators)
+def test_protovalidate_mistyped_rule(validator: ValidatorProtocol) -> None:
+    """Tests that a compilation error is thrown when a rule's type does not match the field's type."""
+    msg = validations_pb.ProtovalidateMistypedRule()
+
+    check_compilation_errors(
+        validator, msg, "duration field validator on non-duration field"
+    )
+
+
+@pytest.mark.parametrize("validator", validators)
 def test_repeated(validator: ValidatorProtocol) -> None:
     msg = validations_pb.RepeatedEmbedSkip(val=[validations_pb.Embed(val=-1)])
 
