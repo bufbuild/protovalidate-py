@@ -13,10 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Regenerate the vendored C++ sources for the native extension.
+"""Regenerate the C++ build inputs for the native extension.
 
 To bump the targeted protovalidate-cc version, edit scripts/extract/versions.json
-and run this script. This script requires Bazel - it is only used during the bump
+and run this script: it moves the third_party/ submodules to match and rewrites
+everything derived from them. It requires Bazel - it is only used during the bump
 and not during normal builds.
 
 What it does:
@@ -27,16 +28,22 @@ What it does:
    (crates/protovalidate-sys/shim) plus a trivial main. Compiling the shim
    validates it against the pinned versions; the binary's link anchors the
    closure below.
-3. Reads the probe's *link* closure to decide which translation units the
+3. Reads the probe's *link* closure to decide which C++ source files the
    extension needs. We need to actually build a binary instead of using
    a deps() query since that includes tooling/test dependencies and doesn't
    reflect the actual source we use / need to vendor, only the dependency graph.
-4. Vendors the needed sources plus all headers into each crate's vendor/
-   directory. Bazel-generated files (ANTLR parser, .pb.cc/.pb.h, cel-cpp's
-   descriptor-set embed) are vendored like everything else: for this project
-   they are just more files that get deleted and regenerated together.
+4. Checks the third_party/ submodules out at the versions bazel resolved, so
+   the sources cargo compiles are the ones bazel just described. Submodules
+   with uncommitted changes are left alone and stop the run.
+5. Writes one filelist per static library naming those source files, as
+   paths into the submodules -- checking as it goes that each one is present,
+   so any remaining mismatch fails here rather than at compile time.
+6. Copies the bazel-generated sources (ANTLR parser, .pb.cc/.pb.h, cel-cpp's
+   descriptor-set embed) into each crate's gen/. These are the only sources
+   checked in, because no upstream tree contains them and regenerating them
+   would require protoc and a JVM at build time.
 
-The action graph also contains actions that are not translation units of the
+The action graph also contains actions that do not compile sources of the
 extension -- exec-configuration tooling like protoc, and `parse_headers`
 header-validation compiles. Nothing filters them explicitly: selection is
 driven by what the probe's link actually consumed, so they fall out.
@@ -47,12 +54,12 @@ from __future__ import annotations
 import collections
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
 import sys
 import tarfile
+import typing
 import urllib.request
 from pathlib import Path
 
@@ -61,20 +68,48 @@ CONFIG_PATH = REPO_ROOT / "scripts" / "extract" / "versions.json"
 WORK_DIR = REPO_ROOT / ".tmp" / "native-extract"
 CRATES = REPO_ROOT / "crates"
 
-# Canonical bazel repo name -> crate that vendors it.
-REPO_TO_CRATE = {
-    "abseil-cpp+": "absl-sys",
-    "protobuf+": "protobuf-sys",
-    "re2+": "re2-sys",
-    "antlr4-cpp-runtime+": "antlr4rt-sys",
-    "cel-cpp+": "celcpp-sys",
-    "cel-spec+": "celcpp-sys",
-    "protovalidate+": "protovalidate-sys",
-    "_main": "protovalidate-sys",
+
+class Repo(typing.NamedTuple):
+    """Where a bazel repo's sources live in the cargo workspace."""
+
+    crate: str
+    # Filelist basename; one static library is built per upstream project.
+    library: str
+    # Directory under the crate's third_party/, or None when the repo
+    # contributes generated code only (its .proto inputs are never compiled).
+    submodule: str | None
+    # Path within the submodule that the bazel module root maps to, mirroring
+    # the registry entry's strip_prefix.
+    prefix: str = ""
+    # Upstream git tag for the resolved module version.
+    tag: str = "{version}"
+
+
+# Canonical bazel repo name -> where its sources live.
+REPOS = {
+    "abseil-cpp+": Repo("deps-sys", "absl", "abseil-cpp"),
+    "protobuf+": Repo("deps-sys", "protobuf", "protobuf", tag="v{version}"),
+    "re2+": Repo("deps-sys", "re2", "re2"),
+    "antlr4-cpp-runtime+": Repo("deps-sys", "antlr4", "antlr4", prefix="runtime/Cpp"),
+    "cel-cpp+": Repo("deps-sys", "celcpp", "cel-cpp", tag="v{version}"),
+    "cel-spec+": Repo("deps-sys", "celcpp", None),
+    "protovalidate+": Repo("protovalidate-sys", "protovalidate", None),
+    "_main": Repo("protovalidate-sys", "protovalidate", "protovalidate-cc"),
 }
+# Registry module name -> bazel repo name, for driving the submodules.
+MODULE_TO_REPO = {
+    "abseil-cpp": "abseil-cpp+",
+    "protobuf": "protobuf+",
+    "re2": "re2+",
+    "antlr4-cpp-runtime": "antlr4-cpp-runtime+",
+    "cel-cpp": "cel-cpp+",
+}
+REPO_TO_MODULE = {repo: module for module, repo in MODULE_TO_REPO.items()}
 # protovalidate doesn't use protobuf input/output streams (only bytes) so we
 # skip vendoring zlib. If we didn't do this, zlib would still be stripped from
-# the final binary since it's unused so this saves us some vendoring for free.
+# the final binary since it's unused so this saves us some vendoring for free,
+# but means we have one additional define to disable zlib support that upstream
+# does not.
 SKIP_REPOS = {"zlib+"}
 
 VENDOR_HEADER_SUFFIXES = (".h", ".hpp", ".inc", ".def")
@@ -85,6 +120,10 @@ PROBE_PACKAGE = "pv_extract"
 
 def copy_file(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
+    # Leave an unchanged file (and its mtime) alone so that re-extracting does
+    # not invalidate cargo's fingerprints for the generated sources.
+    if dst.is_file() and dst.read_bytes() == src.read_bytes():
+        return
     shutil.copy2(src, dst)
     # bazel-out files are read-only and sometimes executable, and copy2
     # preserves modes: normalize so a second copy to the same destination
@@ -472,100 +511,80 @@ def collect_platform_sources(
 def vendor(
     work: Path, sources: dict[str, set[str]], generated: dict[str, set[str]]
 ) -> None:
-    """Regenerates crate vendored trees."""
-    for crate in sorted(set(REPO_TO_CRATE.values())):
-        for subdirectory in ("vendor", "gen"):
-            tree = CRATES / crate / subdirectory
-            if tree.exists():
-                shutil.rmtree(tree)
+    """Regenerates the checked-in generated sources and the filelists.
 
-    output_base = Path(
-        run(["bazel", "info", "output_base"], cwd=work, capture=True).strip()
-    )
+    Upstream sources are not copied: they are git submodules under each crate's
+    third_party/, so all that is recorded for them is which C++ source files
+    to compile.
+    """
     execroot = Path(
         run(["bazel", "info", "execution_root"], cwd=work, capture=True).strip()
     )
 
-    filelists: dict[str, list[str]] = collections.defaultdict(list)
+    filelists: dict[tuple[str, str], list[str]] = collections.defaultdict(list)
     platform_sources = collect_platform_sources(work, sources)
-    vendor_sources(work, output_base / "external", sources, platform_sources, filelists)
-    vendor_generated(execroot, generated, filelists)
-
-    for crate, files in filelists.items():
-        path = CRATES / crate / "filelist.txt"
-        content = (
-            "# Generated by scripts/extract_native_sources.py -- do not edit.\n"
-            "# Files the extension links. Paths are relative to this crate's vendor/ dir.\n"
-            "# A `windows:`/`linux:`/`macos:` prefix compiles a file on that OS only.\n"
-            + "\n".join(sorted(files))
-            + "\n"
-        )
-        if not path.exists() or path.read_text() != content:
-            path.write_text(content)
-
-        vendor_dir = CRATES / crate / "vendor"
-        # Files all have mtime set to the time of the git commit for a source archive.
-        # To keep build cache keys stable, we set the mtime of directories we create
-        # to the same time.
-        stamp = min(
-            (vendor_dir / file.split(":", 1)[-1]).stat().st_mtime for file in files
-        )
-        os.utime(vendor_dir, (stamp, stamp))
-        for directory in vendor_dir.rglob("*"):
-            if directory.is_dir():
-                os.utime(directory, (stamp, stamp))
+    record_sources(sources, platform_sources, filelists)
+    written = vendor_generated(execroot, generated, filelists)
+    prune_generated(written)
+    write_filelists(filelists)
 
 
-def vendor_sources(
-    work: Path,
-    external: Path,
+def submodule_path(repo: str, rel: str) -> str:
+    """Crate-relative path of an upstream source file."""
+    spec = REPOS[repo]
+    parts = ["third_party", spec.submodule]
+    if spec.prefix:
+        parts.append(spec.prefix)
+    parts.append(rel)
+    return "/".join(parts)
+
+
+def record_sources(
     sources: dict[str, set[str]],
     platform_sources: dict[str, set[tuple[str, str]]],
-    filelists: dict[str, list[str]],
+    filelists: dict[tuple[str, str], list[str]],
 ) -> None:
-    """Copies each repo's translation units, all its headers, and licenses.
-
-    Headers are copied wholesale rather than from the compile closure: the
-    closure only contains what this host's build read, and platform-specific
-    headers (absl's spinlock_linux.inc, win32 .incs) must be vendored even
-    though the extracting machine never touches them.
-    """
+    """Records upstream C++ source files as paths into the submodules."""
+    missing: list[str] = []
     for repo, files in sorted(sources.items()):
-        crate = REPO_TO_CRATE.get(repo)
-        if crate is None:
-            print(
-                f"  warning: no crate mapping for repo {repo}, skipping",
-                file=sys.stderr,
-            )
+        spec = REPOS.get(repo)
+        if spec is None:
+            print(f"  warning: no mapping for repo {repo}, skipping", file=sys.stderr)
             continue
-        tree = work if repo == "_main" else external / repo
-        vendor_dir = CRATES / crate / "vendor"
-        # Sources are keyed relative to the tree root.
+        if spec.submodule is None:
+            message = f"{repo} contributes sources but has no submodule"
+            raise SystemExit(message)
+        key = (spec.crate, spec.library)
+        # Sources are keyed relative to the module root.
         rel_files = sorted(
             f if repo == "_main" else f.split(f"external/{repo}/", 1)[1] for f in files
         )
-        for rel in rel_files:
-            copy_file(tree / rel, vendor_dir / rel)
-        for target_os, rel in sorted(platform_sources.get(repo, set())):
-            copy_file(tree / rel, vendor_dir / rel)
-            filelists[crate].append(f"{target_os}:{rel}")
-        for header in tree.rglob("*"):
-            if header.suffix in VENDOR_HEADER_SUFFIXES and header.is_file():
-                copy_file(header, vendor_dir / header.relative_to(tree))
-        copy_licenses(repo, tree, vendor_dir)
-        filelists[crate].extend(rel_files)
+        entries = [(spec, "", rel) for rel in rel_files]
+        entries += [
+            (spec, f"{target_os}:", rel)
+            for target_os, rel in sorted(platform_sources.get(repo, set()))
+        ]
+        for spec_, prefix, rel in entries:
+            path = submodule_path(repo, rel)
+            if not (CRATES / spec_.crate / path).is_file():
+                missing.append(f"{repo}: {path}")
+            filelists[key].append(prefix + path)
+    if missing:
+        listing = "\n  ".join(missing[:20])
+        message = (
+            f"{len(missing)} source(s) missing from the submodules, e.g.:\n  {listing}\n"
+            "Run `git submodule update --init --recursive`, and check the pins "
+            "match the versions bazel resolved (see the summary above)."
+        )
+        raise SystemExit(message)
 
 
 def vendor_generated(
-    execroot: Path, generated: dict[str, set[str]], filelists: dict[str, list[str]]
-) -> None:
-    """Copies every bazel-generated file the extension needs into vendor/.
-
-    Translation units come from the link closure; headers are every generated
-    header under bazel-out (`.pb.h`, the descriptor-set embed `.inc`) -- the
-    build only generates what some consumer needed, and generated code is
-    platform-independent, so the sweep is both complete and portable.
-    """
+    execroot: Path,
+    generated: dict[str, set[str]],
+    filelists: dict[tuple[str, str], list[str]],
+) -> set[Path]:
+    """Copies bazel-generated sources into each crate's gen/."""
     merged: dict[str, set[str]] = collections.defaultdict(set)
     for repo, files in generated.items():
         merged[repo] |= files
@@ -576,53 +595,51 @@ def vendor_generated(
         if "-exec" in source.split("/")[1]:
             continue
         merged[bazel_repo(source)].add(source)
+    written: set[Path] = set()
     for repo, files in sorted(merged.items()):
         if repo in SKIP_REPOS:
             continue
-        crate = REPO_TO_CRATE.get(repo)
-        if crate is None:
-            print(
-                f"  warning: no crate mapping for generated repo {repo}",
-                file=sys.stderr,
-            )
+        spec = REPOS.get(repo)
+        if spec is None:
+            print(f"  warning: no mapping for generated repo {repo}", file=sys.stderr)
             continue
-        vendor_dir = CRATES / crate / "vendor"
+        gen_dir = CRATES / spec.crate / "gen"
         for source in sorted(files):
             dest = generated_destination(source)
-            copy_file(execroot / source, vendor_dir / dest)
+            copy_file(execroot / source, gen_dir / dest)
+            written.add(gen_dir / dest)
             if dest.endswith((".cc", ".cpp")):
-                filelists[crate].append(dest)
+                filelists[(spec.crate, spec.library)].append(f"gen/{dest}")
+    return written
 
 
-def copy_licenses(repo: str, tree: Path, vendor_dir: Path) -> None:
-    """Copies upstream license/notice files from the repo's module root.
-
-    If a vendored dependency doesn't have a LICENSE file in the bazel package,
-    for example antlr4rt-sys, there must be a hand-maintained LICENSE file in
-    the crate's root or we raise an error here to know to copy one in.
-    """
-    copied: list[str] = []
-    for path in sorted(tree.glob("*")):
-        if not path.is_file():
+def prune_generated(written: set[Path]) -> None:
+    """Drops files a previous extraction left in gen/."""
+    for crate in sorted({spec.crate for spec in REPOS.values()}):
+        gen_dir = CRATES / crate / "gen"
+        if not gen_dir.is_dir():
             continue
-        stem = path.name.upper()
-        if stem.startswith(
-            ("LICENSE", "LICENCE", "NOTICE", "COPYING", "AUTHORS", "PATENTS")
-        ):
-            copy_file(path, vendor_dir / path.name)
-            copied.append(path.name)
-    if not copied:
-        crate_root = vendor_dir.parent
-        carried = sorted(f.name for f in crate_root.glob("LICENSE*") if f.is_file())
-        if carried:
-            print(
-                f"  note: {repo} ships no license file; carrying {', '.join(carried)}"
-            )
-        else:
-            message = (
-                f"{repo} has no license file at its module root and {crate_root} carries none.",
-            )
-            raise SystemExit(message)
+        for path in sorted(gen_dir.rglob("*"), reverse=True):
+            if path.is_file() and path not in written:
+                path.unlink()
+            elif path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
+
+
+def write_filelists(filelists: dict[tuple[str, str], list[str]]) -> None:
+    """Writes one filelist per static library, only when the content changes."""
+    for (crate, library), files in sorted(filelists.items()):
+        path = CRATES / crate / "filelists" / f"{library}.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = (
+            "# Generated by scripts/extract_native_sources.py -- do not edit.\n"
+            "# C++ sources the extension compiles, relative to this crate's directory.\n"
+            "# A `windows:`/`linux:`/`macos:` prefix compiles a file on that OS only.\n"
+            + "\n".join(sorted(files))
+            + "\n"
+        )
+        if not path.exists() or path.read_text() != content:
+            path.write_text(content)
 
 
 def module_versions(work: Path) -> dict[str, dict[str, str]]:
@@ -663,6 +680,94 @@ def check_protovalidate_version(versions: dict) -> None:
         raise SystemExit(message)
 
 
+def git(path: Path, *args: str, check: bool = True) -> str:
+    """Runs a read-only git command in `path`, quietly."""
+    result = subprocess.run(
+        ["git", "-C", str(path), *args], check=False, text=True, capture_output=True
+    )
+    if result.returncode != 0:
+        if check:
+            message = f"git {' '.join(args)} in {path} failed: {result.stderr.strip()}"
+            raise SystemExit(message)
+        return ""
+    return result.stdout.strip()
+
+
+def wanted_ref(repo: str, spec: Repo, versions: dict, config: dict) -> str | None:
+    """The upstream ref to move a submodule to to match a Bazel dependency version."""
+    if repo == "_main":
+        return config["protovalidate_cc"]["ref"]
+    module = REPO_TO_MODULE.get(repo)
+    resolved = versions.get(module, {}).get("version") if module else None
+    if not resolved:
+        return None
+    # Registry-only republishes (`2025-11-05.bcr.1`) carry bazel packaging
+    # fixes; upstream is tagged without the suffix.
+    return spec.tag.format(version=resolved.split(".bcr.")[0])
+
+
+def resolve_in_submodule(path: Path, ref: str) -> str:
+    """Resolves a tag or commit to a commit id."""
+    for candidate in (f"{ref}^{{commit}}", f"refs/tags/{ref}^{{commit}}"):
+        found = git(path, "rev-parse", "--verify", "--quiet", candidate, check=False)
+        if found:
+            return found
+    # Not present locally yet so fetch first.
+    for fetch_args in (["origin", "tag", ref], ["origin", ref]):
+        run(
+            ["git", "-C", str(path), "fetch", "--depth", "1", *fetch_args],
+            cwd=REPO_ROOT,
+        )
+        found = git(
+            path, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False
+        )
+        if found:
+            return found
+        found = git(
+            path, "rev-parse", "--verify", "--quiet", "FETCH_HEAD^{commit}", check=False
+        )
+        if found:
+            return found
+    message = f"could not resolve {ref} in {path}"
+    raise SystemExit(message)
+
+
+def sync_submodules(versions: dict, config: dict) -> None:
+    """Checks the submodules out at the versions bazel resolved."""
+    print("\nsubmodules:")
+    moved: list[str] = []
+    for repo, spec in sorted(REPOS.items()):
+        if spec.submodule is None:
+            continue
+        ref = wanted_ref(repo, spec, versions, config)
+        if ref is None:
+            continue
+        path = CRATES / spec.crate / "third_party" / spec.submodule
+        if not (path / ".git").exists():
+            run(
+                ["git", "submodule", "update", "--init", "--", str(path)], cwd=REPO_ROOT
+            )
+        want = resolve_in_submodule(path, ref)
+        head = git(path, "rev-parse", "HEAD")
+        if head == want:
+            print(f"  {spec.submodule:18s} {ref:14s} {head[:12]} ok")
+            continue
+        # Don't overwrite any pending changes in submodules which may be
+        # experimental work.
+        dirty = git(path, "status", "--porcelain")
+        if dirty:
+            message = (
+                f"{path} has uncommitted changes and needs to move to {ref} "
+                f"({want[:12]}). Commit, stash, or discard them first."
+            )
+            raise SystemExit(message)
+        run(["git", "-C", str(path), "checkout", "--detach", want], cwd=REPO_ROOT)
+        print(f"  {spec.submodule:18s} {ref:14s} {head[:12]} -> {want[:12]}")
+        moved.append(spec.submodule)
+    if moved:
+        print(f"  moved {len(moved)}; commit the updated gitlinks with the filelists")
+
+
 def main() -> None:
     config = json.loads(CONFIG_PATH.read_text())
     if not shutil.which("bazel"):
@@ -676,19 +781,23 @@ def main() -> None:
     versions = module_versions(work)
     check_protovalidate_version(versions)
 
-    print("\ntranslation units to vendor:")
+    def destination(repo: str) -> str:
+        spec = REPOS.get(repo)
+        return f"{spec.crate}:{spec.library}" if spec else "??"
+
+    print("\nC++ source files:")
     total = 0
     for repo, files in sorted(sources.items(), key=lambda kv: -len(kv[1])):
-        print(f"  {repo:24s} {len(files):4d}  -> {REPO_TO_CRATE.get(repo, '??')}")
+        print(f"  {repo:24s} {len(files):4d}  -> {destination(repo)}")
         total += len(files)
     for repo, files in sorted(generated.items()):
-        print(
-            f"  {repo + ' (generated)':24s} {len(files):4d}  -> {REPO_TO_CRATE.get(repo, '??')}"
-        )
+        print(f"  {repo + ' (generated)':24s} {len(files):4d}  -> {destination(repo)}")
         total += len(files)
     print(f"  {'TOTAL':24s} {total:4d}")
 
-    print("\nvendoring")
+    sync_submodules(versions, config)
+
+    print("\nwriting generated sources and filelists")
     vendor(work, sources, generated)
 
     print("\nresolved module versions:")

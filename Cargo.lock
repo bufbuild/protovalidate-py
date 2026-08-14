@@ -3,23 +3,6 @@
 version = 4
 
 [[package]]
-name = "absl-sys"
-version = "0.0.0"
-dependencies = [
- "buildsupport",
- "cc",
-]
-
-[[package]]
-name = "antlr4rt-sys"
-version = "0.0.0"
-dependencies = [
- "absl-sys",
- "buildsupport",
- "cc",
-]
-
-[[package]]
 name = "buildsupport"
 version = "0.0.0"
 dependencies = [
@@ -37,15 +20,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "celcpp-sys"
+name = "deps-sys"
 version = "0.0.0"
 dependencies = [
- "absl-sys",
- "antlr4rt-sys",
  "buildsupport",
  "cc",
- "protobuf-sys",
- "re2-sys",
 ]
 
 [[package]]
@@ -88,15 +67,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "protobuf-sys"
-version = "0.0.0"
-dependencies = [
- "absl-sys",
- "buildsupport",
- "cc",
-]
-
-[[package]]
 name = "protovalidate"
 version = "0.0.0"
 dependencies = [
@@ -109,13 +79,9 @@ dependencies = [
 name = "protovalidate-sys"
 version = "0.0.0"
 dependencies = [
- "absl-sys",
- "antlr4rt-sys",
  "buildsupport",
  "cc",
- "celcpp-sys",
- "protobuf-sys",
- "re2-sys",
+ "deps-sys",
 ]
 
 [[package]]
@@ -182,15 +148,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
-]
-
-[[package]]
-name = "re2-sys"
-version = "0.0.0"
-dependencies = [
- "absl-sys",
- "buildsupport",
- "cc",
 ]
 
 [[package]]

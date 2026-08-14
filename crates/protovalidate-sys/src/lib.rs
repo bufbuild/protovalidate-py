@@ -1,18 +1,14 @@
 //! Safe interface to the C shim over protovalidate-cc.
 //!
 //! The raw ABI mirrors `shim/pv_shim.h`, which this crate's build script
-//! compiles together with the vendored C++ sources, and stays private:
+//! compiles together with the protovalidate-cc sources, and stays private:
 //! [`Engine`] is the API.
 
 use std::ffi::{CStr, c_char, c_int};
 use std::ptr;
 
 // Ensure C++ dependencies are linked, we don't directly reference any symbols from Rust.
-use absl_sys as _;
-use antlr4rt_sys as _;
-use celcpp_sys as _;
-use protobuf_sys as _;
-use re2_sys as _;
+use deps_sys as _;
 
 const PV_OK: c_int = 0;
 const PV_ERR_COMPILATION: c_int = 1;

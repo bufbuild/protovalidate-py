@@ -4,6 +4,7 @@ test/gen/** linguist-generated=true
 proto/** linguist-vendored=true
 test/proto/buf/** linguist-vendored=true
 
-crates/**/vendor/** linguist-vendored=true linguist-generated=true
-crates/*/filelist.txt linguist-generated=true
+crates/**/gen/** linguist-generated=true
+
+crates/*/filelists/*.txt linguist-generated=true
 protovalidate/_protovalidate.pyi linguist-generated=true

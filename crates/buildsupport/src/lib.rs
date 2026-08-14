@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Shared build-script helpers for the vendored C++ crates.
+//! Shared build-script helpers for the native C++ crates.
 //!
-//! Each `-sys` crate holds its sources -- upstream and bazel-generated alike
-//! -- in `vendor/`, and the list of translation units to compile in
-//! `filelist.txt`. Both are produced by `scripts/extract_native_sources.py`.
+//! Upstream C++ sources are git submodules under each crate's `third_party/`,
+//! pinned to the exact versions bazel resolves. Code that has no upstream file
+//! to point at -- protoc output, the ANTLR-generated CEL parser -- is checked
+//! in under `gen/`. The per-library lists of C++ sources to compile live in
+//! `filelists/`. Both `gen/` and the filelists are produced by
+//! `scripts/extract_native_sources.py` from bazel's action graph.
 //!
 //! Include directories travel between crates through cargo's `links`
-//! metadata: a crate with `links = "absl"` publishes `cargo::metadata=include=…`
-//! and its dependents read it back as `DEP_ABSL_INCLUDE`. That keeps the
+//! metadata: a crate with `links = "deps"` publishes `cargo::metadata=include=…`
+//! and its dependents read it back as `DEP_DEPS_INCLUDE`. That keeps the
 //! crates relocatable, which matters because they are consumed from an sdist
 //! unpacked at an arbitrary path.
 
@@ -30,45 +33,55 @@ use std::path::{Path, PathBuf};
 /// Separator for multi-path metadata values.
 const PATH_SEP: char = ';';
 
-fn manifest_dir() -> PathBuf {
+/// The directory of the crate whose build script is running.
+pub fn manifest_dir() -> PathBuf {
     PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"))
 }
 
 /// Whether the C++ compilation can be skipped for this build. We skip it
 /// with clippy or when maturin generates pyi stubs since they don't need the
 /// actual native binary built.
-fn should_skip_cpp() -> bool {
+///
+/// Build scripts return early on this so that a checkout without the
+/// `third_party/` submodules can still lint and generate stubs.
+pub fn should_skip_cpp() -> bool {
     println!("cargo::rerun-if-env-changed=CLIPPY_ARGS");
     println!("cargo::rerun-if-env-changed=PROTOVALIDATE_SKIP_CPP");
     env::var_os("CLIPPY_ARGS").is_some() || env::var_os("PROTOVALIDATE_SKIP_CPP").is_some()
 }
 
-/// The vendored source tree for this crate.
-pub fn vendor_dir() -> PathBuf {
-    let vendored = manifest_dir().join("vendor");
+/// A submodule checkout under this crate's `third_party/`.
+pub fn third_party_dir(name: &str) -> PathBuf {
+    let dir = manifest_dir().join("third_party").join(name);
     assert!(
-        vendored.is_dir(),
-        "{} does not exist. Run scripts/extract_native_sources.py to populate the \
-         vendored sources.",
-        vendored.display(),
+        dir.join(".git").exists() || dir.read_dir().is_ok_and(|mut d| d.next().is_some()),
+        "{} is empty. Run `git submodule update --init --recursive`.",
+        dir.display(),
     );
-    rerun_if_changed(&vendored);
-    vendored
+    rerun_if_changed(&dir);
+    dir
+}
+
+/// The checked-in generated sources for this crate.
+pub fn gen_dir() -> PathBuf {
+    let dir = manifest_dir().join("gen");
+    assert!(dir.is_dir(), "{} does not exist", dir.display());
+    rerun_if_changed(&dir);
+    dir
 }
 
 fn rerun_if_changed(path: &Path) {
     println!("cargo::rerun-if-changed={}", path.display());
 }
 
-/// Source files this crate compiles, relative to [`vendor_dir`].
+/// Source files a library compiles, as paths relative to the crate root.
 ///
 /// A `windows:`/`linux:`/`macos:` prefix marks a file bazel adds through a
 /// platform select(); it is compiled only when the target OS matches.
-fn read_filelist() -> Vec<String> {
+fn read_filelist(path: &Path) -> Vec<String> {
     let target_os = env::var("CARGO_CFG_TARGET_OS").expect("CARGO_CFG_TARGET_OS");
-    let path = manifest_dir().join("filelist.txt");
     println!("cargo::rerun-if-changed={}", path.display());
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     text.lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
@@ -82,7 +95,7 @@ fn read_filelist() -> Vec<String> {
 }
 
 /// Publishes include directories for dependent crates to pick up.
-fn export_includes(dirs: &[PathBuf]) {
+pub fn export_includes(dirs: &[PathBuf]) {
     let joined = dirs
         .iter()
         .map(|d| d.display().to_string())
@@ -203,9 +216,11 @@ impl CxxLib {
             .define("ANTLR4CPP_USING_ABSEIL", None)
     }
 
-    /// Adds every translation unit in `filelist.txt`, resolved against `root`.
-    pub fn files_from_filelist(&mut self, root: &Path) -> &mut Self {
-        for file in read_filelist() {
+    /// Adds every C++ source file named in the filelist, whose entries are
+    /// paths relative to the crate root.
+    pub fn files_from_filelist(&mut self, list: &Path) -> &mut Self {
+        let root = manifest_dir();
+        for file in read_filelist(list) {
             self.build.file(root.join(file));
         }
         self
@@ -216,6 +231,11 @@ impl CxxLib {
             return;
         }
         self.build.compile(&self.name);
+    }
+
+    /// The include directories added via [`Self::include`].
+    pub fn includes(&self) -> &[PathBuf] {
+        &self.includes
     }
 
     /// Publishes the include directories added via [`Self::include`].

@@ -27,6 +27,8 @@ jobs:
       UV_RESOLUTION: "${{ matrix.resolution }}"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
@@ -74,6 +76,8 @@ jobs:
           - windows-11-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       # uv build first generates the sdist and then builds a wheel from it isolated from the repo.
       # So it is enough to verify the sdist is usable.

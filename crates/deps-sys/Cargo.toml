@@ -13,14 +13,11 @@
 # limitations under the License.
 
 [package]
-name = "protovalidate-sys"
+name = "deps-sys"
 version.workspace = true
 edition.workspace = true
-links = "protovalidate"
+links = "deps"
 publish.workspace = true
-
-[dependencies]
-deps-sys.workspace = true
 
 [build-dependencies]
 buildsupport.workspace = true

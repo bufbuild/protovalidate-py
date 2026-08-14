@@ -1,0 +1,18 @@
+[submodule "crates/deps-sys/third_party/abseil-cpp"]
+	path = crates/deps-sys/third_party/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp
+[submodule "crates/deps-sys/third_party/protobuf"]
+	path = crates/deps-sys/third_party/protobuf
+	url = https://github.com/protocolbuffers/protobuf
+[submodule "crates/deps-sys/third_party/re2"]
+	path = crates/deps-sys/third_party/re2
+	url = https://github.com/google/re2
+[submodule "crates/deps-sys/third_party/antlr4"]
+	path = crates/deps-sys/third_party/antlr4
+	url = https://github.com/antlr/antlr4
+[submodule "crates/deps-sys/third_party/cel-cpp"]
+	path = crates/deps-sys/third_party/cel-cpp
+	url = https://github.com/google/cel-cpp
+[submodule "crates/protovalidate-sys/third_party/protovalidate-cc"]
+	path = crates/protovalidate-sys/third_party/protovalidate-cc
+	url = https://github.com/bufbuild/protovalidate-cc

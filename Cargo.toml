@@ -27,13 +27,9 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
-absl-sys = { path = "crates/absl-sys" }
-antlr4rt-sys = { path = "crates/antlr4rt-sys" }
 buildsupport = { path = "crates/buildsupport" }
-celcpp-sys = { path = "crates/celcpp-sys" }
-protobuf-sys = { path = "crates/protobuf-sys" }
+deps-sys = { path = "crates/deps-sys" }
 protovalidate-sys = { path = "crates/protovalidate-sys" }
-re2-sys = { path = "crates/re2-sys" }
 
 cc = "1"
 
