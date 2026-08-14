@@ -46,8 +46,10 @@ script = "scripts.generate_protovalidate:main"
 [tasks.generate-stub]
 help = "Generate the native extension's type stub from pyo3 introspection"
 sequence = [
-  # Symbols kept: maturin locates pyo3's introspection data through the
-  # symbol table, which the release profile's `strip` would remove.
+  # We use the release profile to prevent compile cache churn from executing
+  # this and the standard build, but need to make sure to disable stripping
+  # which is needed for generation. Since it's a link argument, it doesn't
+  # affect compile caching.
   { cmd = "maturin generate-stubs --profile release --out protovalidate", env = { CARGO_PROFILE_RELEASE_STRIP = "none" } },
   "format-license-header",
   # Unsafe fixes are docstring rewrites (trailing whitespace, one-lining);

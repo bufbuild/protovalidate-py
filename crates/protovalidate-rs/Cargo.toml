@@ -13,7 +13,7 @@
 # limitations under the License.
 
 [package]
-name = "protovalidate-rs"
+name = "protovalidate"
 version.workspace = true
 edition.workspace = true
 links = "protovalidate"

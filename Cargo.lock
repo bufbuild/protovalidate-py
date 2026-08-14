@@ -55,16 +55,16 @@ dependencies = [
 name = "protovalidate"
 version = "0.0.0"
 dependencies = [
- "protovalidate-rs",
- "pyo3",
- "pyo3-build-config",
+ "cc",
 ]
 
 [[package]]
-name = "protovalidate-rs"
+name = "protovalidate-py"
 version = "0.0.0"
 dependencies = [
- "cc",
+ "protovalidate",
+ "pyo3",
+ "pyo3-build-config",
 ]
 
 [[package]]

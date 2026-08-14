@@ -13,7 +13,7 @@
 # limitations under the License.
 
 [package]
-name = "protovalidate"
+name = "protovalidate-py"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -27,7 +27,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
-protovalidate-rs = { path = "crates/protovalidate-rs" }
+protovalidate = { path = "crates/protovalidate-rs" }
 
 cc = "1"
 
@@ -36,7 +36,7 @@ crate-type = ["cdylib"]
 name = "protovalidate"
 
 [dependencies]
-protovalidate-rs.workspace = true
+protovalidate.workspace = true
 pyo3 = { version = "0.29.1", features = ["experimental-inspect"] }
 
 [build-dependencies]
