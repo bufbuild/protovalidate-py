@@ -63,7 +63,7 @@ jobs:
   # Confirm the sdist can be built with a default CI environment.
   sdist:
     # Slow so skip on PR
-    if: github.event_name != 'pull_request'
+    # if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
