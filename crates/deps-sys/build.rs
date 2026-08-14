@@ -51,17 +51,23 @@ fn main() {
 
     let mut re2 = lib("re2", &[&re2_dir, &absl_dir]);
 
-    let mut protobuf_lib = lib("protobuf", &[&protobuf_dir, &utf8_dir, &generated, &absl_dir]);
+    let mut protobuf_lib = lib(
+        "protobuf",
+        &[&protobuf_dir, &utf8_dir, &generated, &absl_dir],
+    );
 
-    let mut celcpp = lib("celcpp", &[
-        &celcpp_dir,
-        &generated,
-        &absl_dir,
-        &protobuf_dir,
-        &utf8_dir,
-        &re2_dir,
-        &antlr4_dir,
-    ]);
+    let mut celcpp = lib(
+        "celcpp",
+        &[
+            &celcpp_dir,
+            &generated,
+            &absl_dir,
+            &protobuf_dir,
+            &utf8_dir,
+            &re2_dir,
+            &antlr4_dir,
+        ],
+    );
     celcpp.antlr4_defines();
 
     // Static archives must precede the archives they reference on the link

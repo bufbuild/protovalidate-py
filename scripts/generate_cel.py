@@ -31,7 +31,7 @@ def main() -> None:
     shutil.rmtree(test_dir / "gen" / "cel", ignore_errors=True)
 
     subprocess.run(
-        [  # noqa: S607
+        [
             "buf",
             "generate",
             f"buf.build/google/cel-spec:{CEL_SPEC_VERSION}",
