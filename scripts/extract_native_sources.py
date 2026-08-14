@@ -83,14 +83,30 @@ class Repo(typing.NamedTuple):
     prefix: str = ""
     # Upstream git tag for the resolved module version.
     tag: str = "{version}"
+    # Include roots within the submodule, mirroring the ones build.rs passes to
+    # the compiler. A bazel-generated file that the submodule already provides
+    # under one of these is not checked in again; see vendor_generated.
+    include_roots: tuple[str, ...] = ("",)
 
 
 # Canonical bazel repo name -> where its sources live.
 REPOS = {
     "abseil-cpp+": Repo("deps-sys", "absl", "abseil-cpp"),
-    "protobuf+": Repo("deps-sys", "protobuf", "protobuf", tag="v{version}"),
+    "protobuf+": Repo(
+        "deps-sys",
+        "protobuf",
+        "protobuf",
+        tag="v{version}",
+        include_roots=("src", "third_party/utf8_range"),
+    ),
     "re2+": Repo("deps-sys", "re2", "re2"),
-    "antlr4-cpp-runtime+": Repo("deps-sys", "antlr4", "antlr4", prefix="runtime/Cpp"),
+    "antlr4-cpp-runtime+": Repo(
+        "deps-sys",
+        "antlr4",
+        "antlr4",
+        prefix="runtime/Cpp",
+        include_roots=("runtime/Cpp/runtime/src",),
+    ),
     "cel-cpp+": Repo("deps-sys", "celcpp", "cel-cpp", tag="v{version}"),
     "cel-spec+": Repo("deps-sys", "celcpp", None),
     "protovalidate+": Repo("protovalidate-sys", "protovalidate", None),
@@ -579,6 +595,31 @@ def record_sources(
         raise SystemExit(message)
 
 
+def upstream_copy(spec: Repo, dest: str) -> Path | None:
+    """The submodule's own copy of a bazel-generated file, if it has one."""
+    if spec.submodule is None:
+        return None
+    root = CRATES / spec.crate / "third_party" / spec.submodule
+    for include_root in spec.include_roots:
+        candidate = root / include_root / dest if include_root else root / dest
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _visibility_normalized(text: bytes) -> bytes:
+    """Drops DLL-visibility annotations before comparing generated code.
+
+    Bazel regenerates WKTs as part of the build for static compilation, so we
+    ensure the submodule's version is valid by removing the annotations before
+    comparing.
+    """
+    stripped = re.sub(
+        rb"PROTOBUF_EXPORT_TEMPLATE_(DECLARE|DEFINE)|PROTOBUF_EXPORT", b"", text
+    )
+    return b" ".join(stripped.split())
+
+
 def vendor_generated(
     execroot: Path,
     generated: dict[str, set[str]],
@@ -604,8 +645,29 @@ def vendor_generated(
             print(f"  warning: no mapping for generated repo {repo}", file=sys.stderr)
             continue
         gen_dir = CRATES / spec.crate / "gen"
+        crate_dir = CRATES / spec.crate
         for source in sorted(files):
             dest = generated_destination(source)
+            # A genrule that re-stages its inputs leaves them under its own
+            # output directory, so the repo tree reappears inside the path.
+            if "external/" in dest:
+                continue
+            payload = (execroot / source).read_bytes()
+            existing = upstream_copy(spec, dest)
+            if existing is not None:
+                if _visibility_normalized(existing.read_bytes()) != (
+                    _visibility_normalized(payload)
+                ):
+                    message = (
+                        f"{existing.relative_to(CRATES)} differs from what bazel "
+                        f"generated at {dest}. Compiling the submodule's copy would "
+                        "no longer match what bazel built; check what changed upstream."
+                    )
+                    raise SystemExit(message)
+                if dest.endswith((".cc", ".cpp")):
+                    rel = existing.relative_to(crate_dir).as_posix()
+                    filelists[(spec.crate, spec.library)].append(rel)
+                continue
             copy_file(execroot / source, gen_dir / dest)
             written.add(gen_dir / dest)
             if dest.endswith((".cc", ".cpp")):
