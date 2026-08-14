@@ -71,6 +71,7 @@ ignore = [
   "buf.yaml",
   "buf.gen.yaml",
   "test/conformance/nonconforming.yaml",
+  "**/third_party/**",
 ]
 
 [tool.maturin]
@@ -184,6 +185,11 @@ split-on-trailing-comma = false
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.tombi]
+files.exclude = [
+  "**/third_party/**",
+]
 
 [tool.uv]
 cache-keys = [

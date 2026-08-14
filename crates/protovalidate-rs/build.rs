@@ -218,28 +218,18 @@ fn main() {
 
     let mut protobuf_lib = CxxLib::new("protobuf", &[&protobuf, &utf8, &generated, &absl]);
 
-    let mut celcpp_lib = CxxLib::new("celcpp", &[
-        &celcpp,
-        &generated,
-        &absl,
-        &protobuf,
-        &utf8,
-        &re2,
-        &antlr4,
-    ]);
+    let mut celcpp_lib = CxxLib::new(
+        "celcpp",
+        &[&celcpp, &generated, &absl, &protobuf, &utf8, &re2, &antlr4],
+    );
     celcpp_lib.antlr4_defines();
 
-    let mut pv_lib = CxxLib::new("protovalidate", &[
-        &pvcc,
-        &generated,
-        &shim,
-        &celcpp,
-        &absl,
-        &protobuf,
-        &utf8,
-        &re2,
-        &antlr4,
-    ]);
+    let mut pv_lib = CxxLib::new(
+        "protovalidate",
+        &[
+            &pvcc, &generated, &shim, &celcpp, &absl, &protobuf, &utf8, &re2, &antlr4,
+        ],
+    );
     pv_lib.antlr4_defines();
     // The C ABI the Rust bindings call through.
     rerun_if_changed(&shim.join("pv_shim.cc"));
