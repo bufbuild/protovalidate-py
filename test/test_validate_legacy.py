@@ -25,7 +25,7 @@ import protovalidate
 from protovalidate import Violation
 
 from ._utils import ValidatorProtocol, check_valid, compare_violations
-from .conftest import backend_validators
+from .conftest import make_validator
 from .gen.tests.example.v1 import validations_pb2
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 validators: list[ValidatorProtocol] = [
     protovalidate,  # global module singleton
-    *backend_validators(),
+    make_validator(),
 ]
 
 

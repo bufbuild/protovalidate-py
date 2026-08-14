@@ -31,6 +31,7 @@ cmd = "uv run --group docs zensical serve"
 sequence = [
   "generate-cel",
   "generate-protovalidate",
+  "generate-stub",
   "generate-test",
   "format-license-header",
   "format-protos",
@@ -42,6 +43,21 @@ script = "scripts.generate_cel:main"
 [tasks.generate-protovalidate]
 script = "scripts.generate_protovalidate:main"
 
+[tasks.generate-stub]
+help = "Generate the native extension's type stub from pyo3 introspection"
+sequence = [
+  # We use the release profile to prevent compile cache churn from executing
+  # this and the standard build, but need to make sure to disable stripping
+  # which is needed for generation. Since it's a link argument, it doesn't
+  # affect compile caching.
+  { cmd = "maturin generate-stubs --profile release --out protovalidate", env = { CARGO_PROFILE_RELEASE_STRIP = "none" } },
+  "format-license-header",
+  # Unsafe fixes are docstring rewrites (trailing whitespace, one-lining);
+  # safe on a generated file whose docstrings come from Rust doc comments.
+  { cmd = "ruff check --fix --unsafe-fixes protovalidate/_protovalidate.pyi" },
+  { cmd = "ruff format protovalidate/_protovalidate.pyi" },
+]
+
 [tasks.generate-test]
 sequence = [
   { script = "poethepoet.scripts:rm('test/gen/tests')" },
@@ -49,11 +65,16 @@ sequence = [
   { cmd = "fix-protobuf-imports test/gen" },
 ]
 
+[tasks.generate-vendored]
+help = "Generate vendored sources for the native extension"
+script = "scripts.extract_native_sources:main"
+
 [tasks.format]
 help = "Apply all possible auto-formatting to files"
 sequence = [
   "format-python",
   "format-protos",
+  "format-rust",
   "format-toml",
   "format-license-header"
 ]
@@ -76,6 +97,13 @@ sequence = [
   { cmd = "ruff format" }
 ]
 
+[tasks.format-rust]
+help = "Format native extension code"
+sequence = [
+  { cmd = "cargo clippy --fix --allow-dirty" },
+  { cmd = "cargo fmt" },
+]
+
 [tasks.format-toml]
 help = "Apply formatting to TOML files"
 cmd = "tombi format"
@@ -85,6 +113,7 @@ help = "Apply all possible linting to files"
 sequence = [
   "lint-python",
   "lint-protos",
+  "lint-rust",
   "lint-toml",
   "lint-license-header",
   { cmd = "uv lock --check" }
@@ -99,6 +128,13 @@ help = "Apply linting to protobuf files"
 sequence = [
   { cmd = "buf format -d --exit-code" },
   { cmd = "buf format -d --exit-code", cwd = "test" },
+]
+
+[tasks.lint-rust]
+help = "Lint native extension code"
+sequence = [
+  { cmd = "cargo clippy" },
+  { cmd = "cargo fmt --check" },
 ]
 
 [tasks.lint-python]

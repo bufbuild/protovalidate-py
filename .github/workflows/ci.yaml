@@ -1,34 +1,53 @@
 name: CI
 on:
   push:
-    branches: [main]
-    tags: ["v*"]
+    branches:
+      - main
   pull_request:
-    branches: [main]
-  schedule:
-    - cron: "15 22 * * *"
+    branches:
+      - "**"
   workflow_dispatch: {} # support manual runs
 permissions:
   contents: read
 jobs:
   ci:
     name: CI
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        runner:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
         resolution: ["highest", "lowest-direct"]
     env:
       # Shared env variables for all the tests
       UV_RESOLUTION: "${{ matrix.resolution }}"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
           # We use this to install certain tools defined in poe tasks
           cache-dependency-path: poe_tasks.toml
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .sccache
+          key: sccache-${{ matrix.runner }}-${{ github.sha }}
+          restore-keys: sccache-${{ matrix.runner }}-
+      - name: Enable sccache
+        shell: bash
+        run: |
+          echo "SCCACHE_DIR=${{ github.workspace }}/.sccache" >> $GITHUB_ENV
+          echo "SCCACHE_CACHE_SIZE=250M" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      - name: Setup rust
+        run: rustup update
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: ${{ matrix.python-version }}
@@ -41,15 +60,39 @@ jobs:
           uv sync --no-dev
           uv run --no-dev --group dev-required pytest -k test_conformance
 
-  lint:
-    runs-on: ubuntu-latest
+  # Confirm the sdist can be built with a default CI environment.
+  sdist:
+    # Slow so skip on PR
+    if: github.event_name != 'pull_request'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - macos-15
+          - macos-15-intel
+          - windows-2025
+          - windows-11-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: stable
-          # We use this to install certain tools defined in poe tasks
-          cache-dependency-path: poe_tasks.toml
+          submodules: recursive
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      # uv build first generates the sdist and then builds a wheel from it isolated from the repo.
+      # So it is enough to verify the sdist is usable.
+      - run: uv build
+
+  lint:
+    runs-on: ubuntu-24.04
+    env:
+      # We don't need the built extension for linting
+      UV_NO_PROJECT: "true"
+      PROTOVALIDATE_SKIP_CPP: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup rust
+        run: rustup update
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: ${{ matrix.python-version }}

@@ -12,20 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The semantic validation library for Protobuf in Python."""
+"""The semantic validation library for Protobuf in Python.
+
+Validation is performed by protovalidate-cc, compiled into the
+``protovalidate._protovalidate`` extension module. Apart from
+``ValidationError``, which PyO3 cannot define while ``abi3`` is enabled,
+everything here is implemented natively and re-exported at the path it has
+always had.
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from protovalidate._core import Violation
-from protovalidate._gen.buf.validate.validate_pb import (
+from ._errors import CompilationError, EvaluationError, ValidationError
+from ._gen.buf.validate.validate_pb import (
     FieldPath as FieldPathPb,
     FieldPathElement as FieldPathElementPb,
     Violation as ViolationPb,
     Violations as ViolationsPb,
 )
-from protovalidate._validator import CompilationError, ValidationError, Validator
+from ._protovalidate import Validator, Violation
 
 if TYPE_CHECKING:
     from google.protobuf import message as google_message
@@ -45,6 +52,7 @@ def validate(
 
     Raises:
         CompilationError: If the static rules could not be compiled.
+        EvaluationError: If a rule failed while being evaluated.
         ValidationError: If the message is invalid. The violations raised as part of this error should
             always be equal to the list of violations returned by `collect_violations`.
     """
@@ -65,12 +73,14 @@ def collect_violations(
 
     Raises:
         CompilationError: If the static rules could not be compiled.
+        EvaluationError: If a rule failed while being evaluated.
     """
     return _default_validator.collect_violations(message, fail_fast=fail_fast)
 
 
 __all__ = [
     "CompilationError",
+    "EvaluationError",
     "FieldPathElementPb",
     "FieldPathPb",
     "ValidationError",

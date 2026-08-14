@@ -19,7 +19,7 @@ import pytest
 from protobuf import Oneof
 
 import protovalidate
-from protovalidate import Violation, _rules
+from protovalidate import Violation
 
 from ._utils import (
     ValidatorProtocol,
@@ -27,12 +27,12 @@ from ._utils import (
     check_valid,
     compare_violations,
 )
-from .conftest import backend_validators
+from .conftest import make_validator
 from .gen.tests.example.v1 import validations_pb
 
 validators: list[ValidatorProtocol] = [
     protovalidate,  # global module singleton
-    *backend_validators(),
+    make_validator(),
 ]
 
 
@@ -41,7 +41,7 @@ def test_ninf(validator: ValidatorProtocol) -> None:
     msg = validations_pb.DoubleFinite()
     msg.val = float("-inf")
 
-    expected_violation = _rules.Violation(
+    expected_violation = Violation(
         message="must be finite",
         rule_id="double.finite",
         field_value=msg.val,
@@ -56,7 +56,7 @@ def test_map_key(validator: ValidatorProtocol) -> None:
     msg = validations_pb.MapKeys()
     msg.val[1] = "a"
 
-    expected_violation = _rules.Violation(
+    expected_violation = Violation(
         message="must be less than 0",
         rule_id="sint64.lt",
         for_key=True,
@@ -95,7 +95,7 @@ def test_protovalidate_oneof_violation(validator: ValidatorProtocol) -> None:
     msg.a = "A"
     msg.b = "B"
 
-    expected_violation = _rules.Violation(
+    expected_violation = Violation(
         message="only one of a, b can be set", rule_id="message.oneof"
     )
 
@@ -106,7 +106,7 @@ def test_protovalidate_oneof_violation(validator: ValidatorProtocol) -> None:
 def test_protovalidate_oneof_required_violation(validator: ValidatorProtocol) -> None:
     msg = validations_pb.ProtovalidateOneofRequired()
 
-    expected_violation = _rules.Violation(
+    expected_violation = Violation(
         message="one of a, b must be set", rule_id="message.oneof"
     )
 
@@ -126,6 +126,16 @@ def test_protovalidate_oneof_unknown_field_name(validator: ValidatorProtocol) ->
 
 
 @pytest.mark.parametrize("validator", validators)
+def test_protovalidate_mistyped_rule(validator: ValidatorProtocol) -> None:
+    """Tests that a compilation error is thrown when a rule's type does not match the field's type."""
+    msg = validations_pb.ProtovalidateMistypedRule()
+
+    check_compilation_errors(
+        validator, msg, "duration field validator on non-duration field"
+    )
+
+
+@pytest.mark.parametrize("validator", validators)
 def test_repeated(validator: ValidatorProtocol) -> None:
     msg = validations_pb.RepeatedEmbedSkip(val=[validations_pb.Embed(val=-1)])
 
@@ -136,7 +146,7 @@ def test_repeated(validator: ValidatorProtocol) -> None:
 def test_maps(validator: ValidatorProtocol) -> None:
     msg = validations_pb.MapMinMax()
 
-    expected_violation = _rules.Violation(
+    expected_violation = Violation(
         message="map must be at least 2 entries",
         rule_id="map.min_pairs",
         field_value={},
@@ -160,14 +170,14 @@ def test_multiple_validations(validator: ValidatorProtocol) -> None:
     msg.title = "bar"
     msg.name = "blah"
 
-    expected_violation1 = _rules.Violation(
+    expected_violation1 = Violation(
         message="does not have prefix `foo`",
         rule_id="string.prefix",
         field_value=msg.title,
         rule_value="foo",
     )
 
-    expected_violation2 = _rules.Violation(
+    expected_violation2 = Violation(
         message="must be at least 5 characters",
         rule_id="string.min_len",
         field_value=msg.name,
@@ -191,7 +201,7 @@ def test_fail_fast(validator: ValidatorProtocol) -> None:
     msg.title = "bar"
     msg.name = "blah"
 
-    expected_violation = _rules.Violation(
+    expected_violation = Violation(
         message="does not have prefix `foo`",
         rule_id="string.prefix",
         field_value=msg.title,

@@ -22,6 +22,9 @@ cd protovalidate-py
 Next, install dependencies. You will need:
 
 * [uv](https://docs.astral.sh/uv/)
+* [rust](https://rust-lang.org/tools/install/)
+* A C++17 compiler. On macOS and Windows, rustup installation will ensure one is present,
+  most Linux systems will also have one, but otherwise use e.g., `apt install build-essential`
 
 Some tasks require additional non-Python tools:
 

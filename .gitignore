@@ -6,3 +6,9 @@ __pycache__
 .envrc
 .benchmarks
 site
+
+*.so
+target
+dist
+.tmp
+.sccache

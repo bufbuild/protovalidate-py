@@ -17,12 +17,10 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
-import celpy
 import protobuf
 from protobuf import Oneof, Registry, wkt as pb_wkt
 
 import protovalidate
-from protovalidate import _backend
 
 from ..gen.buf.validate import validate_pb  # noqa: TID252
 from ..gen.buf.validate.conformance.harness.harness_pb import (  # noqa: TID252
@@ -37,11 +35,9 @@ if TYPE_CHECKING:
         message as google_message,
     )
 
-# Set to test google.protobuf messages instead of protobuf-py
+# Set to exercise google.protobuf messages instead of protobuf-py. The native
+# validator accepts both, so both are worth conformance coverage.
 _LEGACY = os.environ.get("PROTOVALIDATE_CONFORMANCE_LEGACY") == "1"
-
-if os.environ.get("PROTOVALIDATE_CONFORMANCE_BACKEND") == "celpy":
-    _backend.CEL_EXPR_AVAILABLE = False
 
 
 def build_google_pool(
@@ -92,11 +88,9 @@ def run_test_case(
         return TestResult(result=Oneof(field="success", value=True))
     except protovalidate.CompilationError as e:
         return TestResult(result=Oneof(field="compilation_error", value=str(e)))
-    except celpy.CELEvalError as e:
-        # celpy surfaces evaluation failures as CELEvalError; cel-expr-python
-        # surfaces them as RuntimeError.
-        return TestResult(result=Oneof(field="runtime_error", value=str(e)))
     except RuntimeError as e:
+        # EvaluationError subclasses RuntimeError, which is what puts rule
+        # evaluation failures in the right conformance bucket.
         return TestResult(result=Oneof(field="runtime_error", value=str(e)))
     except Exception as e:  # noqa: BLE001
         return TestResult(result=Oneof(field="unexpected_error", value=str(e)))

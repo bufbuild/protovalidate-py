@@ -17,19 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 import protovalidate
-from protovalidate import _backend
-
-BACKENDS: list[str] = ["celpy", *(["cel-expr"] if _backend.CEL_EXPR_AVAILABLE else [])]
 
 
-def make_validator(cel_backend: str, **kwargs: Any) -> protovalidate.Validator:
-    original = _backend.CEL_EXPR_AVAILABLE
-    _backend.CEL_EXPR_AVAILABLE = cel_backend == "cel-expr"
-    try:
-        return protovalidate.Validator(**kwargs)
-    finally:
-        _backend.CEL_EXPR_AVAILABLE = original
-
-
-def backend_validators(**kwargs: Any) -> list[protovalidate.Validator]:
-    return [make_validator(name, **kwargs) for name in BACKENDS]
+def make_validator(**kwargs: Any) -> protovalidate.Validator:
+    return protovalidate.Validator(**kwargs)

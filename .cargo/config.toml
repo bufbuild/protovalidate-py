@@ -1,0 +1,5 @@
+# Ensure builds use the same value, in practice it seems generating stubs
+# with maturin vs building the project either set or leave this unset and
+# can cause build cache thrashing.
+[env]
+MACOSX_DEPLOYMENT_TARGET = "11.0"

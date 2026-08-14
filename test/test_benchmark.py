@@ -14,7 +14,9 @@
 
 from __future__ import annotations
 
+import functools
 import random
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -30,8 +32,10 @@ from protobuf.wkt import (
     UInt32Value,
     UInt64Value,
 )
+from pydantic import ValidationError
 
-from .conftest import BACKENDS, make_validator
+from . import _models
+from .conftest import make_validator
 from .gen.bench.v1.bench_pb import (
     BenchComplexSchema,
     BenchEnum,
@@ -51,7 +55,7 @@ from .gen.bench.v1.native_pb import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Iterator
 
     from pytest_benchmark.fixture import BenchmarkFixture
 
@@ -125,9 +129,41 @@ def gen_complex(depth: int) -> BenchComplexSchema:
     )
 
 
-@pytest.fixture(params=BACKENDS)
-def validator(request: pytest.FixtureRequest) -> protovalidate.Validator:
-    return make_validator(request.param)
+def _validate_pydantic(
+    model: type[_models.ProtoModel], payload: dict[str, Any]
+) -> None:
+    """Validates a pre-built payload, swallowing failures.
+
+    protovalidate's `collect_violations` reports rather than raises, so the
+    failing cases have to be caught here to keep the two paths comparable.
+    """
+    try:  # noqa: SIM105 # contextlib.suppress adds measurable overhead to the timed call
+        model.model_validate(payload)
+    except ValidationError:
+        pass
+
+
+Engine = Callable[[Message], "tuple[Callable[[Any], Any], Any]"]
+
+ENGINES = ["native", "pydantic"]
+
+
+@pytest.fixture(params=ENGINES)
+def engine(request: pytest.FixtureRequest) -> Engine:
+    if request.param == "pydantic":
+
+        def pydantic_engine(message: Message) -> tuple[Callable[[Any], Any], Any]:
+            model = _models.model_for(message)
+            if model is None:
+                pytest.skip(f"no pydantic equivalent for {type(message).__name__}")
+            return functools.partial(_validate_pydantic, model), model.to_payload(
+                message
+            )
+
+        return pydantic_engine
+
+    validator: protovalidate.Validator = make_validator()
+    return lambda message: (validator.collect_violations, message)
 
 
 def param(*args: Any, id: str) -> pytest.param:  # noqa: A002
@@ -176,10 +212,10 @@ cases = [
             lte=50,
             gtltin=50,
             gtltein=50,
-            # gtltex, gtlteex, gteltex, gtelteex have unsatisfiable rules (lt < gt);
-            # Go's bench leaves them at zero which is treated as unset for proto3 scalars
-            # by the rules engine — protovalidate skips fields with rules.required=false
-            # unset zero values. Keeping them at 0 mirrors Go's fixture.
+            # gtltex, gtlteex, gteltex and gtelteex are left at zero, mirroring Go's
+            # fixture. Rules apply to zero-valued proto3 scalars, so gtltex and
+            # gtlteex (whose `gt`/`lt` pairs form an exclusive range excluding 0)
+            # each report a violation; this case is not violation-free.
             gteltin=50,
             gteltein=50,
             const=10,
@@ -233,7 +269,7 @@ def test_benchmark(
     _id: str,
     message_factory: Callable[[], Message],
     benchmark: BenchmarkFixture,
-    validator: protovalidate.Validator,
+    engine: Engine,
 ) -> None:
-    message = message_factory()
-    benchmark(validator.collect_violations, message)
+    validate, message = engine(message_factory())
+    benchmark(validate, message)

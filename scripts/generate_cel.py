@@ -30,8 +30,8 @@ def main() -> None:
     """Generates CEL conformance protos and fetches CEL testdata."""
     shutil.rmtree(test_dir / "gen" / "cel", ignore_errors=True)
 
-    subprocess.run(  # noqa: S603
-        [  # noqa: S607
+    subprocess.run(
+        [
             "buf",
             "generate",
             f"buf.build/google/cel-spec:{CEL_SPEC_VERSION}",

@@ -51,6 +51,10 @@ To install the package, use `pip`:
 pip install protovalidate
 ```
 
+protovalidate is implemented as a Python native extension. We publish wheels for common platforms
+and you will usually download a pre-built wheel. For others, ensure you have Rust and a C++
+compiler available, and it will be automatically built during installation.
+
 ## Documentation
 
 Comprehensive documentation for Protovalidate is available at [protovalidate.com][protovalidate].

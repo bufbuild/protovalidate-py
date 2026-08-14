@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Edit version and run scripts/extract_native_sources.py to update the native extension."
+  ],
+  "protovalidate_cc": {
+    "comment": ["1.2.0 not released yet so target unreleased commit"],
+    "archive": "https://github.com/bufbuild/protovalidate-cc/archive/{ref}.tar.gz",
+    "ref": "5f8219d280b4ad65abd0adcd17b50d0ed30d2406",
+    "sha256": "e7b03936881be348ffeeba10f12d6507828f536f53750cbd6de7f1bedacc0e6b"
+  },
+  "module_overrides": {
+    "_comment": ["Use newer cel-cpp for Windows compatibility."],
+    "cel-cpp": "0.15.0"
+  },
+  "bazel": {
+    "java_runtime_version": "remotejdk_17"
+  }
+}
