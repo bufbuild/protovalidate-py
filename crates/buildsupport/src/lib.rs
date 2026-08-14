@@ -28,6 +28,7 @@
 //! unpacked at an arbitrary path.
 
 use std::env;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 /// Separator for multi-path metadata values.
@@ -53,12 +54,26 @@ pub fn should_skip_cpp() -> bool {
 /// A submodule checkout under this crate's `third_party/`.
 pub fn third_party_dir(name: &str) -> PathBuf {
     let dir = manifest_dir().join("third_party").join(name);
+    // Submodules can have a .git that gets updated on any git pull, invalidating the cache
+    // even if source is unchanged. We walk to filter .git out for the rerun paths.
+    let mut entries = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| {
+            panic!(
+                "{}: {e}. Run `git submodule update --init --recursive`.",
+                dir.display()
+            )
+        })
+        .map(|entry| entry.expect("read_dir entry").path())
+        .filter(|path| path.file_name() != Some(OsStr::new(".git")))
+        .peekable();
     assert!(
-        dir.join(".git").exists() || dir.read_dir().is_ok_and(|mut d| d.next().is_some()),
+        entries.peek().is_some(),
         "{} is empty. Run `git submodule update --init --recursive`.",
         dir.display(),
     );
-    rerun_if_changed(&dir);
+    for path in entries {
+        rerun_if_changed(&path);
+    }
     dir
 }
 

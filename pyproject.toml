@@ -74,17 +74,18 @@ ignore = [
 ]
 
 [tool.maturin]
+# A submodule keeps its own .git directory, which is not part of the source.
+exclude = [
+  { path = "crates/**/.git/**/*", format = "sdist" },
+  { path = "crates/**/.git", format = "sdist" },
+]
 features = ["pyo3/extension-module", "pyo3/abi3-py310"]
 # The C++ sources are submodules, so they are picked up from the working tree
-# rather than from git; their own .git directories are not part of the source.
+# rather than from `git ls-files`, which stops at a submodule boundary.
 include = [
   { path = "crates/**/*", format = "sdist" },
   { path = "build.rs", format = "sdist" },
   { path = "Cargo.lock", format = "sdist" },
-]
-exclude = [
-  { path = "crates/**/.git/**/*", format = "sdist" },
-  { path = "crates/**/.git", format = "sdist" },
 ]
 module-name = "protovalidate._protovalidate"
 # Mixed project: Rust in src/, the Python package alongside it.
@@ -187,13 +188,16 @@ convention = "google"
 [tool.uv]
 cache-keys = [
   { file = "pyproject.toml" },
-  { file = "Cargo.toml" },
-  { file = "Cargo.lock" },
-  { file = "build.rs" },
-  { file = "src/**/*.rs" },
-  { file = "crates/**/*.rs" },
-  { file = "crates/**/filelist.txt" },
-  { file = "crates/**/*.cc" },
-  { file = "crates/**/*.h" },
-  { file = "crates/**/*.inc" },
+  { file = "**/Cargo.toml" },
+  { file = "**/Cargo.lock" },
+  { file = "**/build.rs" },
+  { file = "**/*.rs" },
+  { file = "crates/*/filelists/*.txt" },
+  { file = "**/*.c" },
+  { file = "**/*.cc" },
+  { file = "**/*.cpp" },
+  { file = "**/*.h" },
+  { file = "**/*.hpp" },
+  { file = "**/*.inc" },
+  { file = "**/*.def" },
 ]
