@@ -28,7 +28,7 @@ use pyo3::prelude::*;
 use pyo3::sync::RwLockExt;
 use pyo3::types::{PyBytes, PyList, PyString};
 
-use protovalidate_sys::{Engine, PvError};
+use protovalidate_rs::{Engine, PvError};
 
 use constants::{Constants, Imports};
 use hints::{PbMessage, PbRegistry, ViolationList};

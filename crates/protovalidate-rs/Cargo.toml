@@ -13,10 +13,11 @@
 # limitations under the License.
 
 [package]
-name = "buildsupport"
+name = "protovalidate-rs"
 version.workspace = true
 edition.workspace = true
+links = "protovalidate"
 publish.workspace = true
 
-[dependencies]
+[build-dependencies]
 cc.workspace = true

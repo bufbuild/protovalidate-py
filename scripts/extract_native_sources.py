@@ -25,7 +25,7 @@ What it does:
 1. Fetches protovalidate-cc at the pinned ref and overrides transitive dependency
    versions as needed.
 2. Builds a probe binary from the extension's real shim
-   (crates/protovalidate-sys/shim) plus a trivial main. Compiling the shim
+   (crates/protovalidate-rs/shim) plus a trivial main. Compiling the shim
    validates it against the pinned versions; the binary's link anchors the
    closure below.
 3. Reads the probe's *link* closure to decide which C++ source files the
@@ -39,7 +39,7 @@ What it does:
    paths into the submodules -- checking as it goes that each one is present,
    so any remaining mismatch fails here rather than at compile time.
 6. Copies the bazel-generated sources (ANTLR parser, .pb.cc/.pb.h, cel-cpp's
-   descriptor-set embed) into each crate's gen/. These are the only sources
+   descriptor-set embed) into the crate's gen/. These are the only sources
    checked in, because no upstream tree contains them and regenerating them
    would require protoc and a JVM at build time.
 
@@ -66,13 +66,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = REPO_ROOT / "scripts" / "extract" / "versions.json"
 WORK_DIR = REPO_ROOT / ".tmp" / "native-extract"
-CRATES = REPO_ROOT / "crates"
+CRATE = REPO_ROOT / "crates" / "protovalidate-rs"
 
 
 class Repo(typing.NamedTuple):
-    """Where a bazel repo's sources live in the cargo workspace."""
+    """Where a bazel repo's sources live in the crate."""
 
-    crate: str
     # Filelist basename; one static library is built per upstream project.
     library: str
     # Directory under the crate's third_party/, or None when the repo
@@ -91,26 +90,24 @@ class Repo(typing.NamedTuple):
 
 # Canonical bazel repo name -> where its sources live.
 REPOS = {
-    "abseil-cpp+": Repo("deps-sys", "absl", "abseil-cpp"),
+    "abseil-cpp+": Repo("absl", "abseil-cpp"),
     "protobuf+": Repo(
-        "deps-sys",
         "protobuf",
         "protobuf",
         tag="v{version}",
         include_roots=("src", "third_party/utf8_range"),
     ),
-    "re2+": Repo("deps-sys", "re2", "re2"),
+    "re2+": Repo("re2", "re2"),
     "antlr4-cpp-runtime+": Repo(
-        "deps-sys",
         "antlr4",
         "antlr4",
         prefix="runtime/Cpp",
         include_roots=("runtime/Cpp/runtime/src",),
     ),
-    "cel-cpp+": Repo("deps-sys", "celcpp", "cel-cpp", tag="v{version}"),
-    "cel-spec+": Repo("deps-sys", "celcpp", None),
-    "protovalidate+": Repo("protovalidate-sys", "protovalidate", None),
-    "_main": Repo("protovalidate-sys", "protovalidate", "protovalidate-cc"),
+    "cel-cpp+": Repo("celcpp", "cel-cpp", tag="v{version}"),
+    "cel-spec+": Repo("celcpp", None),
+    "protovalidate+": Repo("protovalidate", None),
+    "_main": Repo("protovalidate", "protovalidate-cc"),
 }
 # Registry module name -> bazel repo name, for driving the submodules.
 MODULE_TO_REPO = {
@@ -311,7 +308,7 @@ def write_probe_package(work: Path) -> None:
     if probe.exists():
         shutil.rmtree(probe)
     probe.mkdir()
-    shim_dir = CRATES / "protovalidate-sys" / "shim"
+    shim_dir = CRATE / "shim"
     for name in ("pv_shim.h", "pv_shim.cc"):
         shutil.copy(shim_dir / name, probe / name)
     # The main only has to make the binary linkable. The vendored set comes
@@ -537,7 +534,7 @@ def vendor(
         run(["bazel", "info", "execution_root"], cwd=work, capture=True).strip()
     )
 
-    filelists: dict[tuple[str, str], list[str]] = collections.defaultdict(list)
+    filelists: dict[str, list[str]] = collections.defaultdict(list)
     platform_sources = collect_platform_sources(work, sources)
     record_sources(sources, platform_sources, filelists)
     written = vendor_generated(execroot, generated, filelists)
@@ -558,7 +555,7 @@ def submodule_path(repo: str, rel: str) -> str:
 def record_sources(
     sources: dict[str, set[str]],
     platform_sources: dict[str, set[tuple[str, str]]],
-    filelists: dict[tuple[str, str], list[str]],
+    filelists: dict[str, list[str]],
 ) -> None:
     """Records upstream C++ source files as paths into the submodules."""
     missing: list[str] = []
@@ -570,19 +567,19 @@ def record_sources(
         if spec.submodule is None:
             message = f"{repo} contributes sources but has no submodule"
             raise SystemExit(message)
-        key = (spec.crate, spec.library)
+        key = spec.library
         # Sources are keyed relative to the module root.
         rel_files = sorted(
             f if repo == "_main" else f.split(f"external/{repo}/", 1)[1] for f in files
         )
-        entries = [(spec, "", rel) for rel in rel_files]
+        entries = [("", rel) for rel in rel_files]
         entries += [
-            (spec, f"{target_os}:", rel)
+            (f"{target_os}:", rel)
             for target_os, rel in sorted(platform_sources.get(repo, set()))
         ]
-        for spec_, prefix, rel in entries:
+        for prefix, rel in entries:
             path = submodule_path(repo, rel)
-            if not (CRATES / spec_.crate / path).is_file():
+            if not (CRATE / path).is_file():
                 missing.append(f"{repo}: {path}")
             filelists[key].append(prefix + path)
     if missing:
@@ -599,7 +596,7 @@ def upstream_copy(spec: Repo, dest: str) -> Path | None:
     """The submodule's own copy of a bazel-generated file, if it has one."""
     if spec.submodule is None:
         return None
-    root = CRATES / spec.crate / "third_party" / spec.submodule
+    root = CRATE / "third_party" / spec.submodule
     for include_root in spec.include_roots:
         candidate = root / include_root / dest if include_root else root / dest
         if candidate.is_file():
@@ -621,11 +618,9 @@ def _visibility_normalized(text: bytes) -> bytes:
 
 
 def vendor_generated(
-    execroot: Path,
-    generated: dict[str, set[str]],
-    filelists: dict[tuple[str, str], list[str]],
+    execroot: Path, generated: dict[str, set[str]], filelists: dict[str, list[str]]
 ) -> set[Path]:
-    """Copies bazel-generated sources into each crate's gen/."""
+    """Copies bazel-generated sources into the crate's gen/."""
     merged: dict[str, set[str]] = collections.defaultdict(set)
     for repo, files in generated.items():
         merged[repo] |= files
@@ -644,8 +639,7 @@ def vendor_generated(
         if spec is None:
             print(f"  warning: no mapping for generated repo {repo}", file=sys.stderr)
             continue
-        gen_dir = CRATES / spec.crate / "gen"
-        crate_dir = CRATES / spec.crate
+        gen_dir = CRATE / "gen"
         for source in sorted(files):
             dest = generated_destination(source)
             # A genrule that re-stages its inputs leaves them under its own
@@ -659,39 +653,38 @@ def vendor_generated(
                     _visibility_normalized(payload)
                 ):
                     message = (
-                        f"{existing.relative_to(CRATES)} differs from what bazel "
+                        f"{existing.relative_to(CRATE)} differs from what bazel "
                         f"generated at {dest}. Compiling the submodule's copy would "
                         "no longer match what bazel built; check what changed upstream."
                     )
                     raise SystemExit(message)
                 if dest.endswith((".cc", ".cpp")):
-                    rel = existing.relative_to(crate_dir).as_posix()
-                    filelists[(spec.crate, spec.library)].append(rel)
+                    rel = existing.relative_to(CRATE).as_posix()
+                    filelists[spec.library].append(rel)
                 continue
             copy_file(execroot / source, gen_dir / dest)
             written.add(gen_dir / dest)
             if dest.endswith((".cc", ".cpp")):
-                filelists[(spec.crate, spec.library)].append(f"gen/{dest}")
+                filelists[spec.library].append(f"gen/{dest}")
     return written
 
 
 def prune_generated(written: set[Path]) -> None:
     """Drops files a previous extraction left in gen/."""
-    for crate in sorted({spec.crate for spec in REPOS.values()}):
-        gen_dir = CRATES / crate / "gen"
-        if not gen_dir.is_dir():
-            continue
-        for path in sorted(gen_dir.rglob("*"), reverse=True):
-            if path.is_file() and path not in written:
-                path.unlink()
-            elif path.is_dir() and not any(path.iterdir()):
-                path.rmdir()
+    gen_dir = CRATE / "gen"
+    if not gen_dir.is_dir():
+        return
+    for path in sorted(gen_dir.rglob("*"), reverse=True):
+        if path.is_file() and path not in written:
+            path.unlink()
+        elif path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
 
 
-def write_filelists(filelists: dict[tuple[str, str], list[str]]) -> None:
+def write_filelists(filelists: dict[str, list[str]]) -> None:
     """Writes one filelist per static library, only when the content changes."""
-    for (crate, library), files in sorted(filelists.items()):
-        path = CRATES / crate / "filelists" / f"{library}.txt"
+    for library, files in sorted(filelists.items()):
+        path = CRATE / "filelists" / f"{library}.txt"
         path.parent.mkdir(parents=True, exist_ok=True)
         content = (
             "# Generated by scripts/extract_native_sources.py -- do not edit.\n"
@@ -804,7 +797,7 @@ def sync_submodules(versions: dict, config: dict) -> None:
         ref = wanted_ref(repo, spec, versions, config)
         if ref is None:
             continue
-        path = CRATES / spec.crate / "third_party" / spec.submodule
+        path = CRATE / "third_party" / spec.submodule
         if not (path / ".git").exists():
             run(
                 ["git", "submodule", "update", "--init", "--", str(path)], cwd=REPO_ROOT
@@ -845,7 +838,7 @@ def main() -> None:
 
     def destination(repo: str) -> str:
         spec = REPOS.get(repo)
-        return f"{spec.crate}:{spec.library}" if spec else "??"
+        return spec.library if spec else "??"
 
     print("\nC++ source files:")
     total = 0

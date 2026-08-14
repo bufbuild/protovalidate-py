@@ -27,9 +27,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
-buildsupport = { path = "crates/buildsupport" }
-deps-sys = { path = "crates/deps-sys" }
-protovalidate-sys = { path = "crates/protovalidate-sys" }
+protovalidate-rs = { path = "crates/protovalidate-rs" }
 
 cc = "1"
 
@@ -38,7 +36,7 @@ crate-type = ["cdylib"]
 name = "protovalidate"
 
 [dependencies]
-protovalidate-sys.workspace = true
+protovalidate-rs.workspace = true
 pyo3 = { version = "0.29.1", features = ["experimental-inspect"] }
 
 [build-dependencies]

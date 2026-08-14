@@ -3,13 +3,6 @@
 version = 4
 
 [[package]]
-name = "buildsupport"
-version = "0.0.0"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "cc"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -17,14 +10,6 @@ checksum = "5add81bb678e6cb321aff7fa0dc7689ad82b112dbc032cea19f91d6b8e3582b9"
 dependencies = [
  "find-msvc-tools",
  "shlex",
-]
-
-[[package]]
-name = "deps-sys"
-version = "0.0.0"
-dependencies = [
- "buildsupport",
- "cc",
 ]
 
 [[package]]
@@ -70,18 +55,16 @@ dependencies = [
 name = "protovalidate"
 version = "0.0.0"
 dependencies = [
- "protovalidate-sys",
+ "protovalidate-rs",
  "pyo3",
  "pyo3-build-config",
 ]
 
 [[package]]
-name = "protovalidate-sys"
+name = "protovalidate-rs"
 version = "0.0.0"
 dependencies = [
- "buildsupport",
  "cc",
- "deps-sys",
 ]
 
 [[package]]

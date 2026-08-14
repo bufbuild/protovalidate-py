@@ -188,16 +188,9 @@ convention = "google"
 [tool.uv]
 cache-keys = [
   { file = "pyproject.toml" },
-  { file = "**/Cargo.toml" },
-  { file = "**/Cargo.lock" },
-  { file = "**/build.rs" },
-  { file = "**/*.rs" },
-  { file = "crates/*/filelists/*.txt" },
-  { file = "**/*.c" },
-  { file = "**/*.cc" },
-  { file = "**/*.cpp" },
-  { file = "**/*.h" },
-  { file = "**/*.hpp" },
-  { file = "**/*.inc" },
-  { file = "**/*.def" },
+  { file = "Cargo.toml" },
+  { file = "Cargo.lock" },
+  { file = "build.rs" },
+  { file = "src/**" },
+  { file = "crates/**" },
 ]

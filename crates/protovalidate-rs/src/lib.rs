@@ -7,9 +7,6 @@
 use std::ffi::{CStr, c_char, c_int};
 use std::ptr;
 
-// Ensure C++ dependencies are linked, we don't directly reference any symbols from Rust.
-use deps_sys as _;
-
 const PV_OK: c_int = 0;
 const PV_ERR_COMPILATION: c_int = 1;
 const PV_ERR_RUNTIME: c_int = 2;
