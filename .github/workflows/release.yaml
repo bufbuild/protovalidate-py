@@ -40,8 +40,8 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .sccache
-          key: sccache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.manylinux }}-${{ github.sha }}
-          restore-keys: sccache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.manylinux }}-
+          key: sccache-${{ matrix.manylinux }}-${{ matrix.platform.runner }}-${{ github.sha }}
+          restore-keys: sccache-${{ matrix.manylinux }}-${{ matrix.platform.runner }}-
 
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -87,8 +87,8 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .sccache
-          key: sccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
-          restore-keys: sccache-${{ runner.os }}-${{ runner.arch }}-
+          key: sccache-${{ matrix.platform.runner }}-${{ github.sha }}
+          restore-keys: sccache-${{ matrix.platform.runner }}-
 
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
@@ -132,8 +132,8 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .sccache
-          key: sccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
-          restore-keys: sccache-${{ runner.os }}-${{ runner.arch }}-
+          key: sccache-${{ matrix.platform.runner }}-${{ github.sha }}
+          restore-keys: sccache-${{ matrix.platform.runner }}-
 
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0

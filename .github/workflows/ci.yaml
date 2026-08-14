@@ -38,8 +38,8 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .sccache
-          key: sccache-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
-          restore-keys: sccache-${{ runner.os }}-${{ runner.arch }}-
+          key: sccache-${{ matrix.runner }}-${{ github.sha }}
+          restore-keys: sccache-${{ matrix.runner }}-
       - name: Enable sccache
         shell: bash
         run: |
@@ -63,7 +63,7 @@ jobs:
   # Confirm the sdist can be built with a default CI environment.
   sdist:
     # Slow so skip on PR
-    # if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
