@@ -43,9 +43,9 @@ dev-required = [
   "pydantic==2.13.4",
   "pytest==9.1.1",
   "pytest-benchmark==5.2.3",
-  "ruff==0.16.2",
-  "tombi==1.2.8",
-  "ty==0.0.69",
+  "ruff==0.16.3",
+  "tombi==1.4.1",
+  "ty==0.0.72",
   "types-protobuf==6.32.1.20260221",
 ]
 
@@ -56,7 +56,7 @@ dev-required = [
 dev-optional = [
   "protobuf>=6.31.0",
 ]
-docs = ["mkdocstrings-python==2.0.5", "zensical==0.0.53"]
+docs = ["mkdocstrings-python==2.0.6", "zensical==0.0.55"]
 
 [build-system]
 requires = ["maturin>=1.12,<2.0"]
