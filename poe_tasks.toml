@@ -76,7 +76,7 @@ sequence = [
   "format-protos",
   "format-rust",
   "format-toml",
-  "format-license-header"
+  "format-license-header",
 ]
 
 [tasks.format-license-header]
@@ -94,7 +94,7 @@ sequence = [
 help = "Apply auto-formatting to Python files"
 sequence = [
   { cmd = "ruff check --fix --unsafe-fixes --exit-zero" },
-  { cmd = "ruff format" }
+  { cmd = "ruff format" },
 ]
 
 [tasks.format-rust]
@@ -116,7 +116,7 @@ sequence = [
   "lint-rust",
   "lint-toml",
   "lint-license-header",
-  { cmd = "uv lock --check" }
+  { cmd = "uv lock --check" },
 ]
 
 [tasks.lint-license-header]
