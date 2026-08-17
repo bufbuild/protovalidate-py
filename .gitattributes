@@ -1,3 +1,5 @@
+* text=auto eol=lf
+
 protovalidate/_gen/** linguist-generated=true
 test/gen/** linguist-generated=true
 

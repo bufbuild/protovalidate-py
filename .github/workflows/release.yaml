@@ -97,7 +97,7 @@ jobs:
           SCCACHE_DIR: ${{ github.workspace }}/.sccache
           SCCACHE_CACHE_SIZE: 250M
         with:
-          args: --release --out dist -i 3.10 -i 3.14t --features pyo3/generate-import-lib
+          args: --release --out dist -i 3.10 -i 3.14t
 
       - name: Upload wheels
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
