@@ -5,8 +5,8 @@
   "protovalidate_cc": {
     "comment": ["1.2.0 not released yet so target unreleased commit"],
     "archive": "https://github.com/bufbuild/protovalidate-cc/archive/{ref}.tar.gz",
-    "ref": "5f8219d280b4ad65abd0adcd17b50d0ed30d2406",
-    "sha256": "e7b03936881be348ffeeba10f12d6507828f536f53750cbd6de7f1bedacc0e6b"
+    "ref": "dbc6dfe6855491a62da4fa2ced46ff2163f13d11",
+    "sha256": "4ed5feee2e64c7484c9bb49e37808ab381adec63d752c152ea9573e74f497e97"
   },
   "module_overrides": {
     "_comment": ["Use newer cel-cpp for Windows compatibility."],
