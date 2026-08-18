@@ -127,6 +127,9 @@ SKIP_REPOS = {"zlib+"}
 
 VENDOR_HEADER_SUFFIXES = (".h", ".hpp", ".inc", ".def")
 
+# A ref pinned by commit rather than by tag.
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+
 # The probe package this script injects into the extraction workspace.
 PROBE_PACKAGE = "pv_extract"
 
@@ -155,6 +158,12 @@ def run(cmd: list[str], cwd: Path, *, capture: bool = False) -> str:
         return result.stdout
     subprocess.run(cmd, cwd=cwd, check=True)
     return ""
+
+
+def try_run(cmd: list[str], cwd: Path) -> bool:
+    """Runs a command that is allowed to fail, reporting whether it worked."""
+    print(f"  $ {' '.join(cmd[:6])}{' ...' if len(cmd) > 6 else ''}", flush=True)
+    return subprocess.run(cmd, cwd=cwd, check=False).returncode == 0
 
 
 class Aquery:
@@ -767,22 +776,22 @@ def resolve_in_submodule(path: Path, ref: str) -> str:
         found = git(path, "rev-parse", "--verify", "--quiet", candidate, check=False)
         if found:
             return found
-    # Not present locally yet so fetch first.
-    for fetch_args in (["origin", "tag", ref], ["origin", ref]):
-        run(
+    # Not present locally yet, so fetch first.
+    fetches = [["origin", ref]]
+    if not COMMIT_SHA.fullmatch(ref):
+        fetches.insert(0, ["origin", "tag", ref])
+    for fetch_args in fetches:
+        if not try_run(
             ["git", "-C", str(path), "fetch", "--depth", "1", *fetch_args],
             cwd=REPO_ROOT,
-        )
-        found = git(
-            path, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False
-        )
-        if found:
-            return found
-        found = git(
-            path, "rev-parse", "--verify", "--quiet", "FETCH_HEAD^{commit}", check=False
-        )
-        if found:
-            return found
+        ):
+            continue
+        for candidate in (f"{ref}^{{commit}}", "FETCH_HEAD^{commit}"):
+            found = git(
+                path, "rev-parse", "--verify", "--quiet", candidate, check=False
+            )
+            if found:
+                return found
     message = f"could not resolve {ref} in {path}"
     raise SystemExit(message)
 
