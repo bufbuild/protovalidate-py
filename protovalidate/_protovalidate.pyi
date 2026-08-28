@@ -42,7 +42,7 @@ class Validator:
                 predefined-rule extensions. If omitted, only standard rules are applied.
         """
     def collect_violations(
-        self, /, message: Message2 | Message, *, fail_fast: bool = False
+        self, /, message: Message2[Any] | Message, *, fail_fast: bool = False
     ) -> list[Violation]:
         """Validates the given message against the static rules defined in the message's descriptor.
 
@@ -64,7 +64,7 @@ class Validator:
             EvaluationError: If a rule failed while being evaluated.
         """
     def validate(
-        self, /, message: Message2 | Message, *, fail_fast: bool = False
+        self, /, message: Message2[Any] | Message, *, fail_fast: bool = False
     ) -> None:
         """Validate the given message against the static rules defined in the message's descriptor.
 

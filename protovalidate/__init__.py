@@ -23,7 +23,7 @@ always had.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._errors import CompilationError, EvaluationError, ValidationError
 from ._gen.buf.validate.validate_pb import (
@@ -42,7 +42,7 @@ _default_validator = Validator()
 
 
 def validate(
-    message: Message | google_message.Message, *, fail_fast: bool = False
+    message: Message[Any] | google_message.Message, *, fail_fast: bool = False
 ) -> None:
     """Validates the given message against the static rules defined in the message's descriptor using a shared validator.
 
@@ -60,7 +60,7 @@ def validate(
 
 
 def collect_violations(
-    message: Message | google_message.Message, *, fail_fast: bool = False
+    message: Message[Any] | google_message.Message, *, fail_fast: bool = False
 ) -> list[Violation]:
     """Collects the violations for the given message against the static rules defined in the message's descriptor using a shared validator.
 

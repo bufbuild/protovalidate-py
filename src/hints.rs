@@ -34,7 +34,10 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PbMessage<'a, 'py> {
     type Error = Infallible;
 
     const INPUT_TYPE: PyStaticExpr = type_hint_union!(
-        type_hint_identifier!("protobuf", "Message"),
+        type_hint_subscript!(
+            type_hint_identifier!("protobuf", "Message"),
+            type_hint_identifier!("typing", "Any")
+        ),
         type_hint_identifier!("google.protobuf.message", "Message")
     );
 
