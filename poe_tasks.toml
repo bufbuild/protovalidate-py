@@ -50,7 +50,7 @@ sequence = [
   # this and the standard build, but need to make sure to disable stripping
   # which is needed for generation. Since it's a link argument, it doesn't
   # affect compile caching.
-  { cmd = "maturin generate-stubs --profile release --out protovalidate", env = { CARGO_PROFILE_RELEASE_STRIP = "none" } },
+  { cmd = "maturin generate-stubs --profile release --out .", env = { CARGO_PROFILE_RELEASE_STRIP = "none" } },
   "format-license-header",
   # Unsafe fixes are docstring rewrites (trailing whitespace, one-lining);
   # safe on a generated file whose docstrings come from Rust doc comments.
