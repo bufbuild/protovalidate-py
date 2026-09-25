@@ -13,23 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Regenerate the C++ build inputs for the native extension.
+"""Regenerate the C++ build inputs of the protovalidate-deps crate.
 
-To bump the targeted protovalidate-cc version, edit scripts/extract/versions.json
-and run this script: it moves the third_party/ submodules to match and rewrites
-everything derived from them. It requires Bazel - it is only used during the bump
-and not during normal builds.
+The crate compiles cel-cpp and the C++ libraries it builds on, plus the CEL
+shim, so this script produces exactly the cel-cpp closure the shim links.
+
+To bump cel-cpp, edit scripts/extract/versions.json and run this script: it
+moves the third_party/ submodules to match and rewrites everything derived from
+them. It requires Bazel - it is only used during the bump and not during normal
+builds.
 
 What it does:
 
-1. Fetches protovalidate-cc at the pinned ref and overrides transitive dependency
+1. Fetches cel-cpp at the pinned ref and overrides transitive dependency
    versions as needed.
-2. Builds a probe binary from the extension's real shim
-   (crates/protovalidate-rs/shim) plus a trivial main. Compiling the shim
-   validates it against the pinned versions; the binary's link anchors the
-   closure below.
+2. Builds a probe binary inside that workspace from the crate's real shim
+   (crates/protovalidate-deps/shim, protovalidate's CEL functions included)
+   plus a trivial main. Compiling the shim validates it against the pinned
+   versions; the binary's link anchors the closure below.
 3. Reads the probe's *link* closure to decide which C++ source files the
-   extension needs. We need to actually build a binary instead of using
+   crate needs. We need to actually build a binary instead of using
    a deps() query since that includes tooling/test dependencies and doesn't
    reflect the actual source we use / need to vendor, only the dependency graph.
 4. Checks the third_party/ submodules out at the versions bazel resolved, so
@@ -44,7 +47,7 @@ What it does:
    would require protoc and a JVM at build time.
 
 The action graph also contains actions that do not compile sources of the
-extension -- exec-configuration tooling like protoc, and `parse_headers`
+crate -- exec-configuration tooling like protoc, and `parse_headers`
 header-validation compiles. Nothing filters them explicitly: selection is
 driven by what the probe's link actually consumed, so they fall out.
 """
@@ -66,7 +69,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = REPO_ROOT / "scripts" / "extract" / "versions.json"
 WORK_DIR = REPO_ROOT / ".tmp" / "native-extract"
-CRATE = REPO_ROOT / "crates" / "protovalidate-rs"
+CRATE = REPO_ROOT / "crates" / "protovalidate-deps"
 
 
 class Repo(typing.NamedTuple):
@@ -104,10 +107,10 @@ REPOS = {
         prefix="runtime/Cpp",
         include_roots=("runtime/Cpp/runtime/src",),
     ),
-    "cel-cpp+": Repo("celcpp", "cel-cpp", tag="v{version}"),
     "cel-spec+": Repo("celcpp", None),
-    "protovalidate+": Repo("protovalidate", None),
-    "_main": Repo("protovalidate", "protovalidate-cc"),
+    # cel-cpp itself is the extraction workspace, checked out at the ref
+    # versions.json pins rather than resolved from the registry.
+    "_main": Repo("celcpp", "cel-cpp"),
 }
 # Registry module name -> bazel repo name, for driving the submodules.
 MODULE_TO_REPO = {
@@ -115,23 +118,72 @@ MODULE_TO_REPO = {
     "protobuf": "protobuf+",
     "re2": "re2+",
     "antlr4-cpp-runtime": "antlr4-cpp-runtime+",
-    "cel-cpp": "cel-cpp+",
 }
 REPO_TO_MODULE = {repo: module for module, repo in MODULE_TO_REPO.items()}
-# protovalidate doesn't use protobuf input/output streams (only bytes) so we
-# skip vendoring zlib. If we didn't do this, zlib would still be stripped from
-# the final binary since it's unused so this saves us some vendoring for free,
-# but means we have one additional define to disable zlib support that upstream
+# The shim doesn't use protobuf input/output streams (only bytes) so we skip
+# vendoring zlib. If we didn't do this, zlib would still be stripped from the
+# final binary since it's unused so this saves us some vendoring for free, but
+# means we have one additional define to disable zlib support that upstream
 # does not.
 SKIP_REPOS = {"zlib+"}
 
+
+def canonical(repo: str) -> str:
+    """A canonical repo name in the spelling REPOS uses.
+
+    Bazel 7 writes canonical names as `abseil-cpp~`, Bazel 8 and later as
+    `abseil-cpp+`; the workspace's .bazelversion decides which one the action
+    graph carries.
+    """
+    return f"{repo[:-1]}+" if repo.endswith("~") else repo
+
+
+def repo_spec(repo: str) -> Repo | None:
+    return REPOS.get(canonical(repo))
+
+
+def skipped(repo: str) -> bool:
+    """Whether a repo is deliberately left out of the vendored set."""
+    return canonical(repo) in SKIP_REPOS
+
+
 VENDOR_HEADER_SUFFIXES = (".h", ".hpp", ".inc", ".def")
+
+# Modules whose resolved version is worth reporting at the end of a run.
+REPORTED_MODULES = ("abseil-cpp", "protobuf", "re2", "antlr4-cpp-runtime", "cel-spec")
 
 # A ref pinned by commit rather than by tag.
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 
 # The probe package this script injects into the extraction workspace.
-PROBE_PACKAGE = "pv_extract"
+PROBE_PACKAGE = "cel_extract"
+
+# The bazel targets the shim compiles against: the parts of cel-cpp, protobuf,
+# abseil and RE2 it and protovalidate's CEL functions use.
+PROBE_DEPS = (
+    "//eval/public:activation",
+    "//eval/public:builtin_func_registrar",
+    "//eval/public:cel_expr_builder_factory",
+    "//eval/public:cel_expression",
+    "//eval/public:cel_function_adapter",
+    "//eval/public:cel_function_registry",
+    "//eval/public:cel_options",
+    "//eval/public:cel_value",
+    "//eval/public:string_extension_func_registrar",
+    "//eval/public/containers:container_backed_map_impl",
+    "//eval/public/containers:field_access",
+    "//eval/public/containers:field_backed_list_impl",
+    "//eval/public/containers:field_backed_map_impl",
+    "//eval/public/structs:cel_proto_wrapper",
+    "//parser",
+    "@com_google_absl//absl/status",
+    "@com_google_absl//absl/status:statusor",
+    "@com_google_absl//absl/strings",
+    "@com_google_absl//absl/synchronization",
+    "@com_google_absl//absl/time",
+    "@com_google_protobuf//:protobuf",
+    "@com_googlesource_code_re2//:re2",
+)
 
 
 def copy_file(src: Path, dst: Path) -> None:
@@ -175,6 +227,9 @@ class Aquery:
         self._artifacts = {a["id"]: a for a in data.get("artifacts", [])}
         self._fragments = {f["id"]: f for f in data.get("pathFragments", [])}
         self._depsets = {s["id"]: s for s in data.get("depSetOfFiles", [])}
+        self._tree_artifacts = [
+            a["id"] for a in data.get("artifacts", []) if a.get("isTreeArtifact")
+        ]
 
     def path(self, artifact_id: int) -> str:
         parts: list[str] = []
@@ -186,6 +241,15 @@ class Aquery:
                 break
             fragment_id = fragment["parentId"]
         return "/".join(reversed(parts))
+
+    def tree_artifact_paths(self) -> set[str]:
+        """The paths of every directory output in the graph.
+
+        What is inside one is an action's private staging (an ANTLR run's raw
+        output, say); the files that matter are copied out of it by later
+        actions.
+        """
+        return {self.path(a) for a in self._tree_artifacts}
 
     def expand(self, depset_ids: list[int]) -> set[int]:
         found: set[int] = set()
@@ -230,7 +294,7 @@ def fetch_source_archive(spec: dict, destination: Path) -> None:
     if not expected:
         print(f"  note: no sha256 pinned; archive digest is {digest}")
 
-    print(f"unpacking protovalidate-cc {spec['ref']}")
+    print(f"unpacking cel-cpp {spec['ref']}")
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive) as tar:
         members = tar.getmembers()
@@ -253,41 +317,44 @@ def fetch_source_archive(spec: dict, destination: Path) -> None:
 
 
 def prepare_workspace(config: dict) -> Path:
-    """Fetch protovalidate-cc at the pinned ref and apply our overrides."""
-    pvcc = config["protovalidate_cc"]
-    work = WORK_DIR / "protovalidate-cc"
+    """Fetch cel-cpp at the pinned ref and apply our overrides."""
+    celcpp = config["cel_cpp"]
+    work = WORK_DIR / "cel-cpp"
     stamp = work / ".extract-ref"
-    if work.exists() and stamp.exists() and stamp.read_text().strip() == pvcc["ref"]:
-        print(f"reusing existing source tree at {work} ({pvcc['ref']})")
+    if work.exists() and stamp.exists() and stamp.read_text().strip() == celcpp["ref"]:
+        print(f"reusing existing source tree at {work} ({celcpp['ref']})")
     else:
         if work.exists():
             shutil.rmtree(work)
-        fetch_source_archive(pvcc, work)
-        stamp.write_text(pvcc["ref"] + "\n")
+        fetch_source_archive(celcpp, work)
+        stamp.write_text(celcpp["ref"] + "\n")
 
-    module = work / "MODULE.bazel"
-    text = module.read_text()
-    marker = "# --- protovalidate-python extraction overrides ---"
+    apply_module_overrides(config, work)
+    write_probe_package(work)
+    return work
+
+
+def apply_module_overrides(config: dict, work: Path) -> None:
+    """Rewrites cel-cpp's MODULE.bazel with the version overrides we want.
+
+    Any overrides a previous run wrote are replaced, or removed when there
+    are none now, so a reused workspace never keeps a stale override.
+    """
     overrides = [
         f'single_version_override(\n    module_name = "{name}",\n    version = "{version}",\n)'
         for name, version in config["module_overrides"].items()
         if not name.startswith("_")
     ]
-    updated = (
-        text.partition(marker)[0].rstrip("\n")
-        + "\n\n"
-        + marker
-        + "\n"
-        + "\n".join(overrides)
-        + "\n"
-    )
+    module = work / "MODULE.bazel"
+    text = module.read_text()
+    marker = "# --- protovalidate-python extraction overrides ---"
+    updated = text.partition(marker)[0].rstrip("\n") + "\n"
+    if overrides:
+        updated += "\n" + marker + "\n" + "\n".join(overrides) + "\n"
     if updated != text:
         module.write_text(updated)
         # The lock pins the old resolution; drop it so bazel re-resolves with our overrides.
         (work / "MODULE.bazel.lock").unlink(missing_ok=True)
-
-    write_probe_package(work)
-    return work
 
 
 def bazel_flags(config: dict) -> list[str]:
@@ -297,13 +364,13 @@ def bazel_flags(config: dict) -> list[str]:
         "--incompatible_strict_action_env",
         # Java needed to generate cel parser with ANTLR
         f"--java_runtime_version={config['bazel']['java_runtime_version']}",
-        # protovalidate-cc and cel-cpp, etc can have different versions, and
-        # Bazel warns for this but it's fine to take the highest and not warn.
+        # Overrides can move a dependency past what cel-cpp's MODULE.bazel asks
+        # for, and Bazel warns for this but it's fine to take the highest and
+        # not warn.
         "--check_direct_dependencies=off",
     ]
     if sys.platform == "darwin":
-        # Flags needed for macOS builds of protovalidate-cc, which should be
-        # upstreamed there eventually.
+        # Flags needed for macOS builds of cel-cpp outside its own .bazelrc.
         flags += [
             "--repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1",
             "--macos_minimum_os=10.15",
@@ -313,23 +380,33 @@ def bazel_flags(config: dict) -> list[str]:
 
 
 def write_probe_package(work: Path) -> None:
+    """Writes the probe package: the crate's real shim plus a trivial main."""
     probe = work / PROBE_PACKAGE
     if probe.exists():
         shutil.rmtree(probe)
     probe.mkdir()
-    shim_dir = CRATE / "shim"
-    for name in ("pv_shim.h", "pv_shim.cc"):
-        shutil.copy(shim_dir / name, probe / name)
+    # The shim keeps its layout, so its includes resolve as they do in the
+    # crate's own build.
+    shutil.copytree(CRATE / "shim", probe, dirs_exist_ok=True)
     # The main only has to make the binary linkable. The vendored set comes
     # from the link action's inputs -- every dep archive, target-level -- so
-    # nothing needs to reference the shim's symbols; pv_shim.cc being a src
-    # is what compile-checks the shim against the pins.
+    # nothing needs to reference the shim's symbols; the shim being compiled
+    # is what checks it against the pins.
     (probe / "probe_main.cc").write_text("int main() { return 0; }\n")
+    deps = "".join(f'        "{dep}",\n' for dep in PROBE_DEPS)
     (probe / "BUILD").write_text(
+        "cc_library(\n"
+        '    name = "shim",\n'
+        '    srcs = glob(["**/*.cc"], exclude = ["probe_main.cc"]),\n'
+        '    hdrs = glob(["**/*.h"]),\n'
+        '    includes = ["."],\n'
+        f"    deps = [\n{deps}    ],\n"
+        ")\n"
+        "\n"
         "cc_binary(\n"
         '    name = "probe",\n'
-        '    srcs = ["pv_shim.cc", "pv_shim.h", "probe_main.cc"],\n'
-        '    deps = ["//buf/validate:validator"],\n'
+        '    srcs = ["probe_main.cc"],\n'
+        '    deps = [":shim"],\n'
         ")\n"
     )
 
@@ -340,9 +417,20 @@ def build_probe(work: Path, flags: list[str]) -> None:
     run(["bazel", "build", *flags, f"//{PROBE_PACKAGE}:probe"], cwd=work)
 
 
-def collect_link_closure(
-    work: Path, flags: list[str]
-) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+class Closure(typing.NamedTuple):
+    """What the probe's link pulled in, split by where it came from."""
+
+    # Upstream C++ sources, keyed by canonical bazel repo name.
+    sources: dict[str, set[str]]
+    # Bazel-generated C++ sources, keyed the same way.
+    generated: dict[str, set[str]]
+    # Directories actions fill as a whole. What is inside one is an action's
+    # private staging (an ANTLR run's raw output, say), and the files that
+    # matter are copied out of it by later actions.
+    tree_artifacts: set[str]
+
+
+def collect_link_closure(work: Path, flags: list[str]) -> Closure:
     """Maps the probe's link inputs back to the source files that fed them.
 
     This is 3 steps:
@@ -352,7 +440,10 @@ def collect_link_closure(
     - Find the source file that produced the .o file
     """
     probe = f"//{PROBE_PACKAGE}:probe"
-    expr = f'mnemonic("CppLink|CppArchive|CppCompile", deps({probe}))'
+    # Every action, not just the C++ ones: the directory outputs that mark
+    # staging come from other kinds (the ANTLR run), and the compile, link and
+    # archive actions are picked out below by mnemonic.
+    expr = f"deps({probe})"
     graph = Aquery(
         run(
             ["bazel", "aquery", *flags, "--output=jsonproto", expr],
@@ -402,7 +493,7 @@ def collect_link_closure(
     for obj in needed:
         source = object_to_source[obj]
         repo = bazel_repo(source)
-        if repo in SKIP_REPOS:
+        if skipped(repo):
             continue
         if repo == "_main" and source.startswith(f"{PROBE_PACKAGE}/"):
             continue  # the shim and probe main are not vendored sources
@@ -411,7 +502,7 @@ def collect_link_closure(
         else:
             sources[repo].add(source)
 
-    return sources, generated
+    return Closure(sources, generated, graph.tree_artifact_paths())
 
 
 def bazel_repo(source: str) -> str:
@@ -530,12 +621,10 @@ def collect_platform_sources(
     return found
 
 
-def vendor(
-    work: Path, sources: dict[str, set[str]], generated: dict[str, set[str]]
-) -> None:
+def vendor(work: Path, closure: Closure) -> None:
     """Regenerates the checked-in generated sources and the filelists.
 
-    Upstream sources are not copied: they are git submodules under each crate's
+    Upstream sources are not copied: they are git submodules under the crate's
     third_party/, so all that is recorded for them is which C++ source files
     to compile.
     """
@@ -544,16 +633,16 @@ def vendor(
     )
 
     filelists: dict[str, list[str]] = collections.defaultdict(list)
-    platform_sources = collect_platform_sources(work, sources)
-    record_sources(sources, platform_sources, filelists)
-    written = vendor_generated(execroot, generated, filelists)
+    platform_sources = collect_platform_sources(work, closure.sources)
+    record_sources(closure.sources, platform_sources, filelists)
+    written = vendor_generated(execroot, closure, filelists)
     prune_generated(written)
     write_filelists(filelists)
 
 
 def submodule_path(repo: str, rel: str) -> str:
     """Crate-relative path of an upstream source file."""
-    spec = REPOS[repo]
+    spec = REPOS[canonical(repo)]
     parts = ["third_party", spec.submodule]
     if spec.prefix:
         parts.append(spec.prefix)
@@ -569,7 +658,7 @@ def record_sources(
     """Records upstream C++ source files as paths into the submodules."""
     missing: list[str] = []
     for repo, files in sorted(sources.items()):
-        spec = REPOS.get(repo)
+        spec = repo_spec(repo)
         if spec is None:
             print(f"  warning: no mapping for repo {repo}, skipping", file=sys.stderr)
             continue
@@ -627,11 +716,16 @@ def _visibility_normalized(text: bytes) -> bytes:
 
 
 def vendor_generated(
-    execroot: Path, generated: dict[str, set[str]], filelists: dict[str, list[str]]
+    execroot: Path, closure: Closure, filelists: dict[str, list[str]]
 ) -> set[Path]:
     """Copies bazel-generated sources into the crate's gen/."""
+
+    def staged(source: str) -> bool:
+        """Whether a path is inside a directory output, i.e. action staging."""
+        return any(source.startswith(f"{tree}/") for tree in closure.tree_artifacts)
+
     merged: dict[str, set[str]] = collections.defaultdict(set)
-    for repo, files in generated.items():
+    for repo, files in closure.generated.items():
         merged[repo] |= files
     for path in (execroot / "bazel-out").rglob("*"):
         if path.suffix not in VENDOR_HEADER_SUFFIXES or not path.is_file():
@@ -639,22 +733,24 @@ def vendor_generated(
         source = str(path.relative_to(execroot))
         if "-exec" in source.split("/")[1]:
             continue
+        # Files inside a directory output are an action's staging, not sources
+        # of their own.
+        if staged(source):
+            continue
         merged[bazel_repo(source)].add(source)
     written: set[Path] = set()
     for repo, files in sorted(merged.items()):
-        if repo in SKIP_REPOS:
+        if skipped(repo):
             continue
-        spec = REPOS.get(repo)
+        spec = repo_spec(repo)
         if spec is None:
             print(f"  warning: no mapping for generated repo {repo}", file=sys.stderr)
             continue
         gen_dir = CRATE / "gen"
         for source in sorted(files):
-            dest = generated_destination(source)
-            # A genrule that re-stages its inputs leaves them under its own
-            # output directory, so the repo tree reappears inside the path.
-            if "external/" in dest:
+            if staged(source):
                 continue
+            dest = generated_destination(source)
             payload = (execroot / source).read_bytes()
             existing = upstream_copy(spec, dest)
             if existing is not None:
@@ -697,7 +793,7 @@ def write_filelists(filelists: dict[str, list[str]]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         content = (
             "# Generated by scripts/extract_native_sources.py -- do not edit.\n"
-            "# C++ sources the extension compiles, relative to this crate's directory.\n"
+            "# C++ sources the crate compiles, relative to this crate's directory.\n"
             "# A `windows:`/`linux:`/`macos:` prefix compiles a file on that OS only.\n"
             + "\n".join(sorted(files))
             + "\n"
@@ -720,30 +816,6 @@ def module_versions(work: Path) -> dict[str, dict[str, str]]:
     return versions
 
 
-def check_protovalidate_version(versions: dict) -> None:
-    """Fails if the linked protovalidate differs from what we target."""
-    resolved = versions.get("protovalidate", {}).get("version")
-    targeted = None
-    versions_py = REPO_ROOT / "test" / "versions.py"
-    if versions_py.exists():
-        for line in versions_py.read_text().splitlines():
-            if line.startswith("PROTOVALIDATE_VERSION"):
-                # The line reads `= os.getenv("PROTOVALIDATE_VERSION", "v1.2.0")`,
-                # so pick out the version literal rather than a quoted position.
-                found = re.search(r'"v?(\d+\.\d+\.\d+[^"]*)"', line)
-                if found:
-                    targeted = found.group(1)
-                break
-    if resolved and targeted and resolved != targeted:
-        message = (
-            f"linked protovalidate is {resolved} but this package targets "
-            f"{targeted} (test/versions.py). Violation messages would differ "
-            f"from what conformance tests. Pin a protovalidate-cc ref that "
-            f"targets {targeted}, or move test/versions.py with it."
-        )
-        raise SystemExit(message)
-
-
 def git(path: Path, *args: str, check: bool = True) -> str:
     """Runs a read-only git command in `path`, quietly."""
     result = subprocess.run(
@@ -760,7 +832,7 @@ def git(path: Path, *args: str, check: bool = True) -> str:
 def wanted_ref(repo: str, spec: Repo, versions: dict, config: dict) -> str | None:
     """The upstream ref to move a submodule to to match a Bazel dependency version."""
     if repo == "_main":
-        return config["protovalidate_cc"]["ref"]
+        return config["cel_cpp"]["ref"]
     module = REPO_TO_MODULE.get(repo)
     resolved = versions.get(module, {}).get("version") if module else None
     if not resolved:
@@ -841,20 +913,19 @@ def main() -> None:
     work = prepare_workspace(config)
     build_flags = bazel_flags(config)
     build_probe(work, build_flags)
-    sources, generated = collect_link_closure(work, build_flags)
+    closure = collect_link_closure(work, build_flags)
     versions = module_versions(work)
-    check_protovalidate_version(versions)
 
     def destination(repo: str) -> str:
-        spec = REPOS.get(repo)
+        spec = repo_spec(repo)
         return spec.library if spec else "??"
 
     print("\nC++ source files:")
     total = 0
-    for repo, files in sorted(sources.items(), key=lambda kv: -len(kv[1])):
+    for repo, files in sorted(closure.sources.items(), key=lambda kv: -len(kv[1])):
         print(f"  {repo:24s} {len(files):4d}  -> {destination(repo)}")
         total += len(files)
-    for repo, files in sorted(generated.items()):
+    for repo, files in sorted(closure.generated.items()):
         print(f"  {repo + ' (generated)':24s} {len(files):4d}  -> {destination(repo)}")
         total += len(files)
     print(f"  {'TOTAL':24s} {total:4d}")
@@ -862,22 +933,15 @@ def main() -> None:
     sync_submodules(versions, config)
 
     print("\nwriting generated sources and filelists")
-    vendor(work, sources, generated)
+    vendor(work, closure)
 
     print("\nresolved module versions:")
+    print(f"  {'cel-cpp':22s} {config['cel_cpp']['ref']} (pinned)")
     for name, info in sorted(versions.items()):
-        if name in (
-            "abseil-cpp",
-            "protobuf",
-            "re2",
-            "antlr4-cpp-runtime",
-            "cel-cpp",
-            "cel-spec",
-            "protovalidate",
-        ):
+        if name in REPORTED_MODULES:
             print(f"  {name:22s} {info['version']}")
 
-    print("\nnext: cargo test, then the conformance suite")
+    print("\nnext: poe test, then the conformance suite")
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ use pyo3::types::{PyBytes, PyDict, PyList, PyString};
 
 use crate::constants::{Constants, Imports};
 use crate::hints::{PbFieldPath, ViolationProto};
-use crate::proto::ProtoAdapter;
+use crate::runtime::ProtoAdapter;
 
 /// The recovered values, resolved together because the rule walk needs the
 /// leaf field found by the field walk.
@@ -216,7 +216,8 @@ fn step_element<'py>(
     let Some(field) = hop.find_field(py, element, constants)? else {
         return Ok(None);
     };
-    let Ok(value) = hop.runtime.read_field(current, &field, constants) else {
+    let info = hop.runtime.field_info(py, &field, constants)?;
+    let Ok(Some(value)) = info.fetch(current, constants) else {
         return Ok(None);
     };
     Ok(Some((value, field)))
@@ -360,10 +361,10 @@ fn rules_of<'py>(
     Ok(options.get_item(extension.bind(py)).ok())
 }
 
-/// Turns the serialized `buf.validate.Violations` from C++ into wrappers.
+/// Turns the validator's serialized `buf.validate.Violations` into wrappers.
 ///
-/// No value resolution happens here: each wrapper keeps the proto the C++ side
-/// produced together with the message it came from, and `field_value` and
+/// No value resolution happens here: each wrapper keeps the proto the
+/// validator produced together with the message it came from, and `field_value` and
 /// `rule_value` are recovered from the paths on first access. Raising a
 /// `ValidationError` or reading `rule_id` never pays for path walking.
 pub fn build_violations<'py>(

@@ -129,3 +129,24 @@ message ConcatenatedValues {
   repeated string bar = 1;
   repeated string baz = 2;
 }
+
+// A rule that does not compile is reported when a validation reaches it.
+message NestedMistypedRule {
+  ProtovalidateMistypedRule child = 1;
+}
+
+message MessageRuleError {
+  option (buf.validate.message).cel = {
+    id: "message_rule_error"
+    expression: "1 +"
+  };
+}
+
+message NestedMessageRuleError {
+  MessageRuleError child = 1;
+}
+
+message ViolationBeforeError {
+  string a = 1 [(buf.validate.field).string.min_len = 5];
+  string b = 2 [(buf.validate.field).duration.gt = {seconds: 1}];
+}

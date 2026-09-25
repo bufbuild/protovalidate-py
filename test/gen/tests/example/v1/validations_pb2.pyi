@@ -149,3 +149,27 @@ class ConcatenatedValues(_message.Message):
     bar: _containers.RepeatedScalarFieldContainer[str]
     baz: _containers.RepeatedScalarFieldContainer[str]
     def __init__(self, bar: _Optional[_Iterable[str]] = ..., baz: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class NestedMistypedRule(_message.Message):
+    __slots__ = ("child",)
+    CHILD_FIELD_NUMBER: _ClassVar[int]
+    child: ProtovalidateMistypedRule
+    def __init__(self, child: _Optional[_Union[ProtovalidateMistypedRule, _Mapping]] = ...) -> None: ...
+
+class MessageRuleError(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class NestedMessageRuleError(_message.Message):
+    __slots__ = ("child",)
+    CHILD_FIELD_NUMBER: _ClassVar[int]
+    child: MessageRuleError
+    def __init__(self, child: _Optional[_Union[MessageRuleError, _Mapping]] = ...) -> None: ...
+
+class ViolationBeforeError(_message.Message):
+    __slots__ = ("a", "b")
+    A_FIELD_NUMBER: _ClassVar[int]
+    B_FIELD_NUMBER: _ClassVar[int]
+    a: str
+    b: str
+    def __init__(self, a: _Optional[str] = ..., b: _Optional[str] = ...) -> None: ...

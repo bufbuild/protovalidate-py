@@ -236,3 +236,50 @@ def check_invalid(
     # Test collect_violations
     violations = validator.collect_violations(msg)
     compare_violations(violations, expected)
+
+
+@pytest.mark.parametrize("validator", validators)
+def test_nested_compilation_error_reached_lazily(validator: ValidatorProtocol) -> None:
+    """A nested type's rule that does not compile fails only a validation that reaches it."""
+    check_valid(validator, validations_pb.NestedMistypedRule())
+
+    check_compilation_errors(
+        validator,
+        validations_pb.NestedMistypedRule(
+            child=validations_pb.ProtovalidateMistypedRule()
+        ),
+        "duration field validator on non-duration field",
+    )
+
+
+@pytest.mark.parametrize("validator", validators)
+def test_nested_message_rule_error(validator: ValidatorProtocol) -> None:
+    """A field whose message type's own rules do not compile fails with that, set or not."""
+    msg = validations_pb.NestedMessageRuleError()
+
+    with pytest.raises(protovalidate.CompilationError) as exc_info:
+        validator.validate(msg)
+    assert str(exc_info.value).startswith(
+        "failed to compile embedded type tests.example.v1.MessageRuleError "
+        "for tests.example.v1.NestedMessageRuleError.child: "
+    )
+
+
+@pytest.mark.parametrize("validator", validators)
+def test_violation_before_compilation_error(validator: ValidatorProtocol) -> None:
+    """A compilation error is reported when its field is reached, so failing fast on an earlier violation never gets there."""
+    msg = validations_pb.ViolationBeforeError(a="x")
+
+    expected_violation = Violation(
+        message="must be at least 5 characters",
+        rule_id="string.min_len",
+        field_value="x",
+        rule_value=5,
+    )
+
+    violations = validator.collect_violations(msg, fail_fast=True)
+    compare_violations(violations, [expected_violation])
+
+    check_compilation_errors(
+        validator, msg, "duration field validator on non-duration field"
+    )

@@ -58,9 +58,9 @@ if TYPE_CHECKING:
 # pulled in more of that module than is worth carrying; `ipaddress` agrees with
 # them on whether a host is an address, which is all it is used for here.
 #
-# The live implementations are now C++ inside protovalidate-cc and cannot be
-# called from Python, so unlike the rest of this file these can drift from what
-# the validator does. If the benchmark ever disagrees with it on a hostname or
+# The live implementations are now Rust inside the native extension and cannot
+# be called from Python, so unlike the rest of this file these can drift from
+# what the validator does. If the benchmark ever disagrees with it on a hostname or
 # host_and_port case, suspect these first.
 # Lifted verbatim from the removed `protovalidate/_funcs.py`.
 EMAIL_PATTERN = (

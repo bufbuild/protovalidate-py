@@ -31,6 +31,8 @@ pub(crate) struct Types {
     pub(crate) field_options: Py<PyType>,
     /// The class `protobuf.wkt.MessageOptions`.
     pub(crate) message_options: Py<PyType>,
+    /// The class `protobuf.Registry`.
+    pub(crate) registry: Py<PyType>,
 }
 
 /// Extension objects used to read rules out of descriptor options.
@@ -44,10 +46,16 @@ pub(crate) struct Extensions {
 pub(crate) struct ConstantsInner {
     /// The string `DESCRIPTOR`.
     pub(crate) descriptor_upper: Py<PyString>,
+    /// The string `FindMessageTypeByName`.
+    pub(crate) find_message_type_by_name: Py<PyString>,
     /// The string `GetOptions`.
     pub(crate) get_options: Py<PyString>,
+    /// The string `HasField`.
+    pub(crate) has_field: Py<PyString>,
     /// The string `SerializeToString`.
     pub(crate) serialize_to_string: Py<PyString>,
+    /// The string `add`.
+    pub(crate) add: Py<PyString>,
     /// The string `dependencies`.
     pub(crate) dependencies: Py<PyString>,
     /// The string `desc`.
@@ -76,14 +84,24 @@ pub(crate) struct ConstantsInner {
     pub(crate) from_binary: Py<PyString>,
     /// The string `full_name`.
     pub(crate) full_name: Py<PyString>,
+    /// The string `items`.
+    pub(crate) items: Py<PyString>,
+    /// The string `local_name`.
+    pub(crate) local_name: Py<PyString>,
     /// The string `message`.
     pub(crate) message: Py<PyString>,
     /// The string `name`.
     pub(crate) name: Py<PyString>,
     /// The string `number`.
     pub(crate) number: Py<PyString>,
+    /// The string `oneof`.
+    pub(crate) oneof: Py<PyString>,
     /// The string `options`.
     pub(crate) options: Py<PyString>,
+    /// The string `pool`.
+    pub(crate) pool: Py<PyString>,
+    /// The string `_present`.
+    pub(crate) present: Py<PyString>,
     /// The string `proto`.
     pub(crate) proto: Py<PyString>,
     /// The string `rule`.
@@ -122,8 +140,11 @@ impl Constants {
         Self {
             inner: Arc::new(ConstantsInner {
                 descriptor_upper: PyString::intern(py, "DESCRIPTOR").unbind(),
+                find_message_type_by_name: PyString::intern(py, "FindMessageTypeByName").unbind(),
                 get_options: PyString::intern(py, "GetOptions").unbind(),
+                has_field: PyString::intern(py, "HasField").unbind(),
                 serialize_to_string: PyString::intern(py, "SerializeToString").unbind(),
+                add: PyString::intern(py, "add").unbind(),
                 dependencies: PyString::intern(py, "dependencies").unbind(),
                 desc: PyString::intern(py, "desc").unbind(),
                 elements: PyString::intern(py, "elements").unbind(),
@@ -138,10 +159,15 @@ impl Constants {
                 for_key: PyString::intern(py, "for_key").unbind(),
                 from_binary: PyString::intern(py, "from_binary").unbind(),
                 full_name: PyString::intern(py, "full_name").unbind(),
+                items: PyString::intern(py, "items").unbind(),
+                local_name: PyString::intern(py, "local_name").unbind(),
                 message: PyString::intern(py, "message").unbind(),
                 name: PyString::intern(py, "name").unbind(),
                 number: PyString::intern(py, "number").unbind(),
+                oneof: PyString::intern(py, "oneof").unbind(),
                 options: PyString::intern(py, "options").unbind(),
+                pool: PyString::intern(py, "pool").unbind(),
+                present: PyString::intern(py, "_present").unbind(),
                 proto: PyString::intern(py, "proto").unbind(),
                 rule: PyString::intern(py, "rule").unbind(),
                 rule_id: PyString::intern(py, "rule_id").unbind(),
@@ -165,6 +191,7 @@ pub(crate) struct Imports {
 impl Imports {
     pub(crate) fn resolve(py: Python<'_>) -> PyResult<Self> {
         let validate = py.import("protovalidate._gen.buf.validate.validate_pb")?;
+        let protobuf = py.import("protobuf")?;
         let wkt = py.import("protobuf.wkt")?;
         Ok(Self {
             types: Types {
@@ -179,6 +206,10 @@ impl Imports {
                 field_options: wkt.getattr("FieldOptions")?.cast_into::<PyType>()?.unbind(),
                 message_options: wkt
                     .getattr("MessageOptions")?
+                    .cast_into::<PyType>()?
+                    .unbind(),
+                registry: protobuf
+                    .getattr("Registry")?
                     .cast_into::<PyType>()?
                     .unbind(),
             },

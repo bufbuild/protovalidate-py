@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TYPE_CHECKING, TypeAlias
+from typing import Literal, NoReturn, TYPE_CHECKING, TypeAlias
 
 from protobuf import Message
 from protobuf._codegen import file_desc
@@ -531,9 +531,119 @@ class ConcatenatedValues(Message[_ConcatenatedValuesFields]):
         bar: list[str]
         baz: list[str]
 
+_NestedMistypedRuleFields: TypeAlias = Literal["child"]
+
+class NestedMistypedRule(Message[_NestedMistypedRuleFields]):
+    """
+    A rule that does not compile is reported when a validation reaches it.
+
+    ```proto
+    message tests.example.v1.NestedMistypedRule
+    ```
+
+    Attributes:
+        child:
+            ```proto
+            optional tests.example.v1.ProtovalidateMistypedRule child = 1;
+            ```
+    """
+
+    __slots__ = ("child",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            child: ProtovalidateMistypedRule | None = None,
+        ) -> None:
+            pass
+
+        child: ProtovalidateMistypedRule | None
+
+_MessageRuleErrorFields: TypeAlias = NoReturn
+
+class MessageRuleError(Message[_MessageRuleErrorFields]):
+    """
+    ```proto
+    message tests.example.v1.MessageRuleError
+    ```
+    """
+
+    __slots__ = ()
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+        ) -> None:
+            pass
+
+_NestedMessageRuleErrorFields: TypeAlias = Literal["child"]
+
+class NestedMessageRuleError(Message[_NestedMessageRuleErrorFields]):
+    """
+    ```proto
+    message tests.example.v1.NestedMessageRuleError
+    ```
+
+    Attributes:
+        child:
+            ```proto
+            optional tests.example.v1.MessageRuleError child = 1;
+            ```
+    """
+
+    __slots__ = ("child",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            child: MessageRuleError | None = None,
+        ) -> None:
+            pass
+
+        child: MessageRuleError | None
+
+_ViolationBeforeErrorFields: TypeAlias = Literal["a", "b"]
+
+class ViolationBeforeError(Message[_ViolationBeforeErrorFields]):
+    """
+    ```proto
+    message tests.example.v1.ViolationBeforeError
+    ```
+
+    Attributes:
+        a:
+            ```proto
+            string a = 1;
+            ```
+        b:
+            ```proto
+            string b = 2;
+            ```
+    """
+
+    __slots__ = ("a", "b")
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            a: str = "",
+            b: str = "",
+        ) -> None:
+            pass
+
+        a: str
+        b: str
+
 
 _DESC = file_desc(
-    b'\n"tests/example/v1/validations.proto\x12\x10tests.example.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto"T\n\x13MultipleValidations\x12 \n\x05title\x18\x01 \x01(\tR\x05titleB\n\xbaH\x07r\x05:\x03foo\x12\x1b\n\x04name\x18\x02 \x01(\tR\x04nameB\x07\xbaH\x04r\x02\x10\x05")\n\x0cDoubleFinite\x12\x19\n\x03val\x18\x01 \x01(\x01R\x03valB\x07\xbaH\x04\x12\x02@\x01";\n\x0eSFixed64ExLTGT\x12)\n\x03val\x18\x01 \x01(\x10R\x03valB\x17\xbaH\x14b\x12\x11\x00\x00\x00\x00\x00\x00\x00\x00!\n\x00\x00\x00\x00\x00\x00\x00")\n\x0cTestOneofMsg\x12\x19\n\x03val\x18\x01 \x01(\x08R\x03valB\x07\xbaH\x04j\x02\x08\x01"q\n\x05Oneof\x12\x1a\n\x01x\x18\x01 \x01(\tH\x00R\x01xB\n\xbaH\x07r\x05:\x03foo\x12\x17\n\x01y\x18\x02 \x01(\x05H\x00R\x01yB\x07\xbaH\x04\x1a\x02 \x00\x12.\n\x01z\x18\x03 \x01(\x0b2\x1e.tests.example.v1.TestOneofMsgH\x00R\x01zB\x03\n\x01o"[\n\x12ProtovalidateOneof\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x0b\xbaH\x08"\x06\n\x01a\n\x01b"e\n\x1aProtovalidateOneofRequired\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\r\xbaH\n"\x08\n\x01a\n\x01b\x10\x01"p\n"ProtovalidateOneofUnknownFieldName\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x10\xbaH\r"\x0b\n\x01a\n\x01b\n\x03xxx"9\n\x19ProtovalidateMistypedRule\x12\x1c\n\x03val\x18\x01 \x01(\tR\x03valB\n\xbaH\x07\xaa\x01\x04*\x02\x08\x01"H\n\x0eTimestampGTNow\x126\n\x03val\x18\x01 \x01(\x0b2\x1a.google.protobuf.TimestampR\x03valB\x08\xbaH\x05\xb2\x01\x02@\x01"\x87\x01\n\tMapMinMax\x12B\n\x03val\x18\x01 \x03(\x0b2$.tests.example.v1.MapMinMax.ValEntryR\x03valB\n\xbaH\x07\x9a\x01\x04\x08\x02\x10\x04\x1a6\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x08R\x05value:\x028\x01"\x85\x01\n\x07MapKeys\x12B\n\x03val\x18\x01 \x03(\x0b2".tests.example.v1.MapKeys.ValEntryR\x03valB\x0c\xbaH\t\x9a\x01\x06"\x04B\x02\x10\x00\x1a6\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\x12R\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value:\x028\x01""\n\x05Embed\x12\x19\n\x03val\x18\x01 \x01(\x03R\x03valB\x07\xbaH\x04"\x02 \x00"K\n\x11RepeatedEmbedSkip\x126\n\x03val\x18\x01 \x03(\x0b2\x17.tests.example.v1.EmbedR\x03valB\x0b\xbaH\x08\x92\x01\x05"\x03\xd8\x01\x03"3\n\x0fInvalidRESyntax\x12 \n\x05value\x18\x01 \x01(\tR\x05valueB\n\xbaH\x07r\x052\x03^\\z"\xa9\x01\n\x12ConcatenatedValues\x12\x10\n\x03bar\x18\x01 \x03(\tR\x03bar\x12\x10\n\x03baz\x18\x02 \x03(\tR\x03baz:o\xbaHl\x1aj\n\x15globally_unique_names\x121all values in bar and baz must be globally unique\x1a\x1e(this.bar + this.baz).unique()B\x8a\x01\n\x14com.tests.example.v1B\x10ValidationsProtoP\x01\xa2\x02\x03TEX\xaa\x02\x10Tests.Example.V1\xca\x02\x10Tests\\Example\\V1\xe2\x02\x1cTests\\Example\\V1\\GPBMetadata\xea\x02\x12Tests::Example::V1b\x06proto3',
+    b'\n"tests/example/v1/validations.proto\x12\x10tests.example.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto"T\n\x13MultipleValidations\x12 \n\x05title\x18\x01 \x01(\tR\x05titleB\n\xbaH\x07r\x05:\x03foo\x12\x1b\n\x04name\x18\x02 \x01(\tR\x04nameB\x07\xbaH\x04r\x02\x10\x05")\n\x0cDoubleFinite\x12\x19\n\x03val\x18\x01 \x01(\x01R\x03valB\x07\xbaH\x04\x12\x02@\x01";\n\x0eSFixed64ExLTGT\x12)\n\x03val\x18\x01 \x01(\x10R\x03valB\x17\xbaH\x14b\x12\x11\x00\x00\x00\x00\x00\x00\x00\x00!\n\x00\x00\x00\x00\x00\x00\x00")\n\x0cTestOneofMsg\x12\x19\n\x03val\x18\x01 \x01(\x08R\x03valB\x07\xbaH\x04j\x02\x08\x01"q\n\x05Oneof\x12\x1a\n\x01x\x18\x01 \x01(\tH\x00R\x01xB\n\xbaH\x07r\x05:\x03foo\x12\x17\n\x01y\x18\x02 \x01(\x05H\x00R\x01yB\x07\xbaH\x04\x1a\x02 \x00\x12.\n\x01z\x18\x03 \x01(\x0b2\x1e.tests.example.v1.TestOneofMsgH\x00R\x01zB\x03\n\x01o"[\n\x12ProtovalidateOneof\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x0b\xbaH\x08"\x06\n\x01a\n\x01b"e\n\x1aProtovalidateOneofRequired\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\r\xbaH\n"\x08\n\x01a\n\x01b\x10\x01"p\n"ProtovalidateOneofUnknownFieldName\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x10\xbaH\r"\x0b\n\x01a\n\x01b\n\x03xxx"9\n\x19ProtovalidateMistypedRule\x12\x1c\n\x03val\x18\x01 \x01(\tR\x03valB\n\xbaH\x07\xaa\x01\x04*\x02\x08\x01"H\n\x0eTimestampGTNow\x126\n\x03val\x18\x01 \x01(\x0b2\x1a.google.protobuf.TimestampR\x03valB\x08\xbaH\x05\xb2\x01\x02@\x01"\x87\x01\n\tMapMinMax\x12B\n\x03val\x18\x01 \x03(\x0b2$.tests.example.v1.MapMinMax.ValEntryR\x03valB\n\xbaH\x07\x9a\x01\x04\x08\x02\x10\x04\x1a6\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x08R\x05value:\x028\x01"\x85\x01\n\x07MapKeys\x12B\n\x03val\x18\x01 \x03(\x0b2".tests.example.v1.MapKeys.ValEntryR\x03valB\x0c\xbaH\t\x9a\x01\x06"\x04B\x02\x10\x00\x1a6\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\x12R\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value:\x028\x01""\n\x05Embed\x12\x19\n\x03val\x18\x01 \x01(\x03R\x03valB\x07\xbaH\x04"\x02 \x00"K\n\x11RepeatedEmbedSkip\x126\n\x03val\x18\x01 \x03(\x0b2\x17.tests.example.v1.EmbedR\x03valB\x0b\xbaH\x08\x92\x01\x05"\x03\xd8\x01\x03"3\n\x0fInvalidRESyntax\x12 \n\x05value\x18\x01 \x01(\tR\x05valueB\n\xbaH\x07r\x052\x03^\\z"\xa9\x01\n\x12ConcatenatedValues\x12\x10\n\x03bar\x18\x01 \x03(\tR\x03bar\x12\x10\n\x03baz\x18\x02 \x03(\tR\x03baz:o\xbaHl\x1aj\n\x15globally_unique_names\x121all values in bar and baz must be globally unique\x1a\x1e(this.bar + this.baz).unique()"W\n\x12NestedMistypedRule\x12A\n\x05child\x18\x01 \x01(\x0b2+.tests.example.v1.ProtovalidateMistypedRuleR\x05child"2\n\x10MessageRuleError:\x1e\xbaH\x1b\x1a\x19\n\x12message_rule_error\x1a\x031 +"R\n\x16NestedMessageRuleError\x128\n\x05child\x18\x01 \x01(\x0b2".tests.example.v1.MessageRuleErrorR\x05child"G\n\x14ViolationBeforeError\x12\x15\n\x01a\x18\x01 \x01(\tR\x01aB\x07\xbaH\x04r\x02\x10\x05\x12\x18\n\x01b\x18\x02 \x01(\tR\x01bB\n\xbaH\x07\xaa\x01\x04*\x02\x08\x01B\x8a\x01\n\x14com.tests.example.v1B\x10ValidationsProtoP\x01\xa2\x02\x03TEX\xaa\x02\x10Tests.Example.V1\xca\x02\x10Tests\\Example\\V1\xe2\x02\x1cTests\\Example\\V1\\GPBMetadata\xea\x02\x12Tests::Example::V1b\x06proto3',
     [
         validate_pb.desc(),
         timestamp_pb.desc(),
@@ -555,6 +665,10 @@ _DESC = file_desc(
         "RepeatedEmbedSkip": RepeatedEmbedSkip,
         "InvalidRESyntax": InvalidRESyntax,
         "ConcatenatedValues": ConcatenatedValues,
+        "NestedMistypedRule": NestedMistypedRule,
+        "MessageRuleError": MessageRuleError,
+        "NestedMessageRuleError": NestedMessageRuleError,
+        "ViolationBeforeError": ViolationBeforeError,
     },
 )
 
