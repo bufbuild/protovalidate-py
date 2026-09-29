@@ -46,9 +46,17 @@ jobs:
           echo "SCCACHE_DIR=${{ github.workspace }}/.sccache" >> $GITHUB_ENV
           echo "SCCACHE_CACHE_SIZE=250M" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+      # sccache mis-parses the -Tp that cc passes cl.exe before .cc sources
+      # (mozilla/sccache#2062). The uncached sdist job still covers cl.exe.
+      - name: Use clang-cl
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "CC=clang-cl" >> $GITHUB_ENV
+          echo "CXX=clang-cl" >> $GITHUB_ENV
       - name: Setup rust
         run: rustup update
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv sync
@@ -78,7 +86,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       # uv build first generates the sdist and then builds a wheel from it isolated from the repo.
       # So it is enough to verify the sdist is usable.
       - run: uv build
@@ -93,7 +101,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup rust
         run: rustup update
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv sync --locked
