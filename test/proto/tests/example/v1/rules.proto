@@ -1,0 +1,71 @@
+// Copyright (c) 2023-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Messages combining several rules on one field, and `unique` over each
+// scalar type.
+
+syntax = "proto3";
+
+package tests.example.v1;
+
+import "buf/validate/validate.proto";
+
+message BenchTestBytes {
+  bytes b1 = 1 [(buf.validate.field).bytes = {
+    not_in: [
+      "\x32\x33",
+      "\x34\x35",
+      "\x36\x37"
+    ]
+    min_len: 1
+    max_len: 4
+  }];
+  bytes b = 4 [(buf.validate.field).bytes = {
+    in: [
+      "\x32\x33",
+      "\x34\x35",
+      "\x36\x37"
+    ]
+    min_len: 2
+    max_len: 2
+  }];
+}
+
+enum TestEnum {
+  TEST_ENUM_UNSPECIFIED = 0;
+  TEST_ENUM_VAL1 = 1;
+  TEST_ENUM_VAL2 = 2;
+  TEST_ENUM_VAL3 = 3;
+}
+
+message TestUnique {
+  repeated TestEnum enums = 1 [(buf.validate.field).repeated.unique = true];
+  repeated bytes bytes = 2 [(buf.validate.field).repeated.unique = true];
+  repeated string strings = 3 [(buf.validate.field).repeated.unique = true];
+}
+
+message TestByteBroken {
+  bytes broken = 1 [
+    (buf.validate.field).bytes.min_len = 5,
+    (buf.validate.field).bytes.max_len = 10,
+    (buf.validate.field).bytes.uuid = true
+  ];
+}
+
+message MultiRule {
+  int64 many = 1 [
+    (buf.validate.field).int64.const = 10,
+    (buf.validate.field).int64.gt = 5
+  ];
+}

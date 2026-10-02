@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 
 from test.conftest import make_validator
@@ -38,6 +39,11 @@ def test_concurrent_first_use() -> None:
     messages = [BenchScalar(x=42), BenchMap(entries={"k": "v"}), MultiRule(many=1)]
     barrier = threading.Barrier(THREADS)
     errors: list[Exception] = []
+    # Switch threads as often as possible, so that any lock held while Python
+    # code runs is contended during that time, not just when timing happens
+    # to line up.
+    switch_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
 
     def run() -> None:
         try:
@@ -51,9 +57,12 @@ def test_concurrent_first_use() -> None:
             errors.append(e)
 
     threads = [threading.Thread(target=run, daemon=True) for _ in range(THREADS)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=60)
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+    finally:
+        sys.setswitchinterval(switch_interval)
     assert not errors
     assert all(not thread.is_alive() for thread in threads)

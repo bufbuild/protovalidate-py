@@ -17,7 +17,10 @@ syntax = "proto3";
 package tests.example.v1;
 
 import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+import "tests/example/v1/rules.proto";
 
 message MultipleValidations {
   string title = 1 [(buf.validate.field).string.prefix = "foo"];
@@ -128,4 +131,125 @@ message ConcatenatedValues {
 
   repeated string bar = 1;
   repeated string baz = 2;
+}
+
+// A rule that does not compile is reported when a validation reaches it.
+message NestedMistypedRule {
+  ProtovalidateMistypedRule child = 1;
+}
+
+message MessageRuleError {
+  option (buf.validate.message).cel = {
+    id: "message_rule_error"
+    expression: "1 +"
+  };
+}
+
+message NestedMessageRuleError {
+  MessageRuleError child = 1;
+}
+
+message ViolationBeforeError {
+  string a = 1 [(buf.validate.field).string.min_len = 5];
+  string b = 2 [(buf.validate.field).duration.gt = {seconds: 1}];
+}
+
+// A repeated or map field takes only `repeated` or `map` rules; rules for
+// its elements' type do not compile.
+message RepeatedFieldScalarRule {
+  repeated string val = 1 [(buf.validate.field).string.min_len = 3];
+}
+
+message RepeatedFieldWrapperRule {
+  repeated google.protobuf.Int32Value val = 1 [(buf.validate.field).int32.gt = 10];
+}
+
+message RepeatedFieldEnumRule {
+  repeated TestEnum val = 1 [(buf.validate.field).enum.defined_only = true];
+}
+
+message RepeatedFieldDurationRule {
+  repeated google.protobuf.Duration val = 1 [(buf.validate.field).duration.gt = {seconds: 1}];
+}
+
+message MapFieldScalarRule {
+  map<string, string> val = 1 [(buf.validate.field).string.min_len = 3];
+}
+
+// `unique` compares scalars only, so it does not compile for messages.
+message RepeatedUniqueMessages {
+  repeated Embed val = 1 [(buf.validate.field).repeated.unique = true];
+}
+
+// In CEL the same call cannot be rejected until it runs.
+message CelUniqueMessages {
+  repeated Embed val = 1 [(buf.validate.field).cel = {
+    id: "unique_messages"
+    message: "must be unique"
+    expression: "this.unique()"
+  }];
+}
+
+// 10000-01-01T00:00:00Z, past the range a Timestamp allows.
+message TimestampOutOfRange {
+  google.protobuf.Timestamp val = 1 [(buf.validate.field).timestamp.const = {seconds: 253402300800}];
+}
+
+message TimestampRuleOrder {
+  google.protobuf.Timestamp val = 1 [(buf.validate.field).timestamp = {
+    const: {seconds: 1}
+    lt_now: true
+  }];
+}
+
+message EnumRuleOrder {
+  TestEnum val = 1 [(buf.validate.field).enum = {
+    const: 1
+    defined_only: true
+    in: [1]
+    not_in: [5]
+  }];
+}
+
+message Hostname {
+  string val = 1 [(buf.validate.field).string.hostname = true];
+}
+
+message DoubleInfinity {
+  double val = 1 [(buf.validate.field).double.const = inf];
+}
+
+message DoubleInfiniteRange {
+  double val = 1 [(buf.validate.field).double = {
+    gt: -inf
+    lt: inf
+  }];
+}
+
+// Patterns are RE2: `\d` is ASCII only, `\Q...\E` quotes literal text,
+// and repeat counts are capped at 1000.
+message PatternAsciiDigits {
+  string val = 1 [(buf.validate.field).string.pattern = "^\\d+$"];
+}
+
+message PatternQuotedLiteral {
+  string val = 1 [(buf.validate.field).string.pattern = "^\\Qa.c\\E$"];
+}
+
+message PatternRepeatTooLarge {
+  string val = 1 [(buf.validate.field).string.pattern = "a{1001}"];
+}
+
+// A wrapper element stands for the scalar it holds, so `unique` compares
+// the inner values.
+message UniqueWrappers {
+  repeated google.protobuf.Int32Value val = 1 [(buf.validate.field).repeated.unique = true];
+}
+
+message CelUniqueWrappers {
+  repeated google.protobuf.Int32Value val = 1 [(buf.validate.field).cel = {
+    id: "unique_wrappers"
+    message: "must be unique"
+    expression: "this.unique()"
+  }];
 }

@@ -14,9 +14,6 @@
 
 //! Interned strings, and the Python types the bindings reach for.
 
-use std::ops::Deref;
-use std::sync::Arc;
-
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyString, PyType};
@@ -31,6 +28,8 @@ pub(crate) struct Types {
     pub(crate) field_options: Py<PyType>,
     /// The class `protobuf.wkt.MessageOptions`.
     pub(crate) message_options: Py<PyType>,
+    /// The class `protobuf.Registry`.
+    pub(crate) registry: Py<PyType>,
 }
 
 /// Extension objects used to read rules out of descriptor options.
@@ -41,13 +40,20 @@ pub(crate) struct Extensions {
     pub(crate) message: Py<PyAny>,
 }
 
-pub(crate) struct ConstantsInner {
+/// Interned strings, shared by every call site.
+pub(crate) struct Constants {
     /// The string `DESCRIPTOR`.
     pub(crate) descriptor_upper: Py<PyString>,
+    /// The string `FindMessageTypeByName`.
+    pub(crate) find_message_type_by_name: Py<PyString>,
     /// The string `GetOptions`.
     pub(crate) get_options: Py<PyString>,
+    /// The string `HasField`.
+    pub(crate) has_field: Py<PyString>,
     /// The string `SerializeToString`.
     pub(crate) serialize_to_string: Py<PyString>,
+    /// The string `add`.
+    pub(crate) add: Py<PyString>,
     /// The string `dependencies`.
     pub(crate) dependencies: Py<PyString>,
     /// The string `desc`.
@@ -76,14 +82,24 @@ pub(crate) struct ConstantsInner {
     pub(crate) from_binary: Py<PyString>,
     /// The string `full_name`.
     pub(crate) full_name: Py<PyString>,
+    /// The string `items`.
+    pub(crate) items: Py<PyString>,
+    /// The string `local_name`.
+    pub(crate) local_name: Py<PyString>,
     /// The string `message`.
     pub(crate) message: Py<PyString>,
     /// The string `name`.
     pub(crate) name: Py<PyString>,
     /// The string `number`.
     pub(crate) number: Py<PyString>,
+    /// The string `oneof`.
+    pub(crate) oneof: Py<PyString>,
     /// The string `options`.
     pub(crate) options: Py<PyString>,
+    /// The string `pool`.
+    pub(crate) pool: Py<PyString>,
+    /// The string `_present`.
+    pub(crate) present: Py<PyString>,
     /// The string `proto`.
     pub(crate) proto: Py<PyString>,
     /// The string `rule`.
@@ -104,54 +120,54 @@ pub(crate) struct ConstantsInner {
     pub(crate) violations: Py<PyString>,
 }
 
-/// Cheaply cloneable handle to the interned objects.
-#[derive(Clone)]
-pub(crate) struct Constants {
-    inner: Arc<ConstantsInner>,
-}
-
-/// Static constants that can be cached per process.
 impl Constants {
-    pub(crate) fn get(py: Python<'_>) -> Self {
+    /// The process-wide constants, interned on first use.
+    pub(crate) fn get(py: Python<'_>) -> &'static Self {
         static INSTANCE: PyOnceLock<Constants> = PyOnceLock::new();
 
-        INSTANCE.get_or_init(py, || Self::new(py)).clone()
+        INSTANCE.get_or_init(py, || Self::new(py))
     }
 
     fn new(py: Python<'_>) -> Self {
         Self {
-            inner: Arc::new(ConstantsInner {
-                descriptor_upper: PyString::intern(py, "DESCRIPTOR").unbind(),
-                get_options: PyString::intern(py, "GetOptions").unbind(),
-                serialize_to_string: PyString::intern(py, "SerializeToString").unbind(),
-                dependencies: PyString::intern(py, "dependencies").unbind(),
-                desc: PyString::intern(py, "desc").unbind(),
-                elements: PyString::intern(py, "elements").unbind(),
-                extensions: PyString::intern(py, "extensions").unbind(),
-                field: PyString::intern(py, "field").unbind(),
-                field_name: PyString::intern(py, "field_name").unbind(),
-                field_number: PyString::intern(py, "field_number").unbind(),
-                fields: PyString::intern(py, "fields").unbind(),
-                fields_by_name: PyString::intern(py, "fields_by_name").unbind(),
-                fields_by_number: PyString::intern(py, "fields_by_number").unbind(),
-                file: PyString::intern(py, "file").unbind(),
-                for_key: PyString::intern(py, "for_key").unbind(),
-                from_binary: PyString::intern(py, "from_binary").unbind(),
-                full_name: PyString::intern(py, "full_name").unbind(),
-                message: PyString::intern(py, "message").unbind(),
-                name: PyString::intern(py, "name").unbind(),
-                number: PyString::intern(py, "number").unbind(),
-                options: PyString::intern(py, "options").unbind(),
-                proto: PyString::intern(py, "proto").unbind(),
-                rule: PyString::intern(py, "rule").unbind(),
-                rule_id: PyString::intern(py, "rule_id").unbind(),
-                serialized_pb: PyString::intern(py, "serialized_pb").unbind(),
-                subscript: PyString::intern(py, "subscript").unbind(),
-                to_binary: PyString::intern(py, "to_binary").unbind(),
-                type_name: PyString::intern(py, "type_name").unbind(),
-                value: PyString::intern(py, "value").unbind(),
-                violations: PyString::intern(py, "violations").unbind(),
-            }),
+            descriptor_upper: PyString::intern(py, "DESCRIPTOR").unbind(),
+            find_message_type_by_name: PyString::intern(py, "FindMessageTypeByName").unbind(),
+            get_options: PyString::intern(py, "GetOptions").unbind(),
+            has_field: PyString::intern(py, "HasField").unbind(),
+            serialize_to_string: PyString::intern(py, "SerializeToString").unbind(),
+            add: PyString::intern(py, "add").unbind(),
+            dependencies: PyString::intern(py, "dependencies").unbind(),
+            desc: PyString::intern(py, "desc").unbind(),
+            elements: PyString::intern(py, "elements").unbind(),
+            extensions: PyString::intern(py, "extensions").unbind(),
+            field: PyString::intern(py, "field").unbind(),
+            field_name: PyString::intern(py, "field_name").unbind(),
+            field_number: PyString::intern(py, "field_number").unbind(),
+            fields: PyString::intern(py, "fields").unbind(),
+            fields_by_name: PyString::intern(py, "fields_by_name").unbind(),
+            fields_by_number: PyString::intern(py, "fields_by_number").unbind(),
+            file: PyString::intern(py, "file").unbind(),
+            for_key: PyString::intern(py, "for_key").unbind(),
+            from_binary: PyString::intern(py, "from_binary").unbind(),
+            full_name: PyString::intern(py, "full_name").unbind(),
+            items: PyString::intern(py, "items").unbind(),
+            local_name: PyString::intern(py, "local_name").unbind(),
+            message: PyString::intern(py, "message").unbind(),
+            name: PyString::intern(py, "name").unbind(),
+            number: PyString::intern(py, "number").unbind(),
+            oneof: PyString::intern(py, "oneof").unbind(),
+            options: PyString::intern(py, "options").unbind(),
+            pool: PyString::intern(py, "pool").unbind(),
+            present: PyString::intern(py, "_present").unbind(),
+            proto: PyString::intern(py, "proto").unbind(),
+            rule: PyString::intern(py, "rule").unbind(),
+            rule_id: PyString::intern(py, "rule_id").unbind(),
+            serialized_pb: PyString::intern(py, "serialized_pb").unbind(),
+            subscript: PyString::intern(py, "subscript").unbind(),
+            to_binary: PyString::intern(py, "to_binary").unbind(),
+            type_name: PyString::intern(py, "type_name").unbind(),
+            value: PyString::intern(py, "value").unbind(),
+            violations: PyString::intern(py, "violations").unbind(),
         }
     }
 }
@@ -165,6 +181,7 @@ pub(crate) struct Imports {
 impl Imports {
     pub(crate) fn resolve(py: Python<'_>) -> PyResult<Self> {
         let validate = py.import("protovalidate._gen.buf.validate.validate_pb")?;
+        let protobuf = py.import("protobuf")?;
         let wkt = py.import("protobuf.wkt")?;
         Ok(Self {
             types: Types {
@@ -181,19 +198,15 @@ impl Imports {
                     .getattr("MessageOptions")?
                     .cast_into::<PyType>()?
                     .unbind(),
+                registry: protobuf
+                    .getattr("Registry")?
+                    .cast_into::<PyType>()?
+                    .unbind(),
             },
             extensions: Extensions {
                 field: validate.getattr("ext_field")?.unbind(),
                 message: validate.getattr("ext_message")?.unbind(),
             },
         })
-    }
-}
-
-impl Deref for Constants {
-    type Target = ConstantsInner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
     }
 }

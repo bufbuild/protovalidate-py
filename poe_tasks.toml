@@ -100,8 +100,8 @@ sequence = [
 [tasks.format-rust]
 help = "Format native extension code"
 sequence = [
-  { cmd = "cargo clippy --fix --allow-dirty" },
-  { cmd = "cargo fmt" },
+  { cmd = "cargo clippy --workspace --all-targets --fix --allow-dirty" },
+  { cmd = "cargo fmt --all" },
 ]
 
 [tasks.format-toml]
@@ -133,8 +133,12 @@ sequence = [
 [tasks.lint-rust]
 help = "Lint native extension code"
 sequence = [
-  { cmd = "cargo clippy" },
-  { cmd = "cargo fmt --check" },
+  { cmd = "cargo clippy --workspace --all-targets -- -D warnings" },
+  # The validator on its own, without the CEL backend, so the rules that never
+  # need it keep compiling without it. Scoped to the one package: across the
+  # workspace the extension's own `cel` feature would be unified back in.
+  { cmd = "cargo clippy -p protovalidate --all-targets --no-default-features -- -D warnings" },
+  { cmd = "cargo fmt --all --check" },
 ]
 
 [tasks.lint-python]
@@ -154,4 +158,19 @@ sequence = [
 
 [tasks.test]
 help = "Run unit tests"
+sequence = [
+  "test-python",
+  "test-rust",
+]
+
+[tasks.test-python]
+help = "Run the Python test suite"
 cmd = "pytest"
+
+[tasks.test-rust]
+help = "Run the native crates' unit tests"
+# The validator crates only: a test binary for the extension itself would link
+# libpython, which the extension module never does. The release profile is the
+# one the extension is built with, so the compiled C++ is shared rather than
+# built a second time in debug.
+cmd = "cargo test --release -p protovalidate -p protovalidate-deps"

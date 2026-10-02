@@ -43,6 +43,25 @@ def main() -> None:
     subprocess.run(["buf", "export", protovalidate_path, "-o", protos_dir], check=True)
     subprocess.run(["buf", "generate"], cwd=repo, check=True)
 
+    # The schema the native validator seeds its descriptor pool with, so the
+    # rule extensions can be read from any registered file. Source info is
+    # left out: it is a third of the size and nothing reads it.
+    descriptor_set = (
+        repo / "crates" / "protovalidate" / "src" / "gen" / "buf.validate.binpb"
+    )
+    subprocess.run(
+        [
+            "buf",
+            "build",
+            "--as-file-descriptor-set",
+            "--exclude-source-info",
+            "-o",
+            descriptor_set,
+        ],
+        cwd=repo,
+        check=True,
+    )
+
     subprocess.run(
         ["buf", "export", protovalidate_testing_path, "-o", repo / "test" / "proto"],
         check=True,

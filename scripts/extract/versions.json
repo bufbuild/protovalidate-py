@@ -1,16 +1,20 @@
 {
   "_comment": [
-    "Edit version and run scripts/extract_native_sources.py to update the native extension."
+    "Edit the pins here and run `poe generate-vendored` to regenerate the C++",
+    "build inputs of the protovalidate-deps crate: the cel-cpp closure the CEL",
+    "shim links. The protovalidate schema and conformance release the native",
+    "extension targets is PROTOVALIDATE_VERSION in test/versions.py."
   ],
-  "protovalidate_cc": {
-    "comment": ["1.2.0 not released yet so target unreleased commit"],
-    "archive": "https://github.com/bufbuild/protovalidate-cc/archive/{ref}.tar.gz",
-    "ref": "dbc6dfe6855491a62da4fa2ced46ff2163f13d11",
-    "sha256": "4ed5feee2e64c7484c9bb49e37808ab381adec63d752c152ea9573e74f497e97"
+  "cel_cpp": {
+    "archive": "https://github.com/google/cel-cpp/archive/{ref}.tar.gz",
+    "ref": "v0.15.0",
+    "sha256": "095e560911ce84cefb886ad9540ca961fd6d7879de441a864e877e6e5f132b02"
   },
   "module_overrides": {
-    "_comment": ["Use newer cel-cpp for Windows compatibility."],
-    "cel-cpp": "0.15.0"
+    "_comment": [
+      "Registry module versions to force over what cel-cpp's MODULE.bazel",
+      "resolves, as `\"name\": \"version\"` entries."
+    ]
   },
   "bazel": {
     "java_runtime_version": "remotejdk_17"
