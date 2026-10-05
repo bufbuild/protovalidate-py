@@ -28,7 +28,8 @@ class Validator:
     """Validate Protobuf messages against static rules.
 
     Both protobuf-py messages and legacy google.protobuf messages are
-    accepted; either is handed to the native engine in serialized form.
+    accepted; either is validated in place, and only serialized if a custom
+    CEL rule needs a message, list or map as a value.
 
     Each validator instance caches internal state generated from the static
     rules, so reusing the same instance for multiple validations
@@ -38,8 +39,9 @@ class Validator:
         """Create a new validator.
 
         Parameters:
-            registry: An optional Registry used to resolve custom
-                predefined-rule extensions. If omitted, only standard rules are applied.
+            registry: An optional Registry whose files declaring extensions are
+                registered up front, so predefined rules defined in files the
+                validated messages do not import are still found.
         """
     def collect_violations(
         self, /, message: Message2[Any] | Message, *, fail_fast: bool = False

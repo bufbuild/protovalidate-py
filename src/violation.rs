@@ -25,7 +25,7 @@ use pyo3::types::{PyBytes, PyDict, PyList, PyString};
 
 use crate::constants::{Constants, Imports};
 use crate::hints::{PbFieldPath, ViolationProto};
-use crate::proto::ProtoAdapter;
+use crate::runtime::ProtoAdapter;
 
 /// The recovered values, resolved together because the rule walk needs the
 /// leaf field found by the field walk.
@@ -34,8 +34,8 @@ struct Values {
     rule: Py<PyAny>,
 }
 
-/// Where an engine-produced violation came from, kept for lazy resolution
-/// of a violation field value.
+/// The validation an engine-produced violation came from, shared by its
+/// violations for the lazy resolution of their values.
 struct Origin {
     message: Py<PyAny>,
     adapter: ProtoAdapter,
@@ -48,25 +48,16 @@ pub struct Violation {
     /// The `buf.validate.Violation` form of this violation.
     proto: Py<PyAny>,
     /// `None` for hand-built violations, which have nothing to resolve from.
-    origin: Option<Origin>,
+    origin: Option<Arc<Origin>>,
     values: PyOnceLock<Values>,
 }
 
 impl Violation {
     /// Wraps a violation the engine produced, deferring value resolution.
-    pub(crate) fn deferred(
-        proto: Py<PyAny>,
-        message: Py<PyAny>,
-        adapter: ProtoAdapter,
-        imports: Arc<Imports>,
-    ) -> Self {
+    fn deferred(proto: Py<PyAny>, origin: Arc<Origin>) -> Self {
         Self {
             proto,
-            origin: Some(Origin {
-                message,
-                adapter,
-                imports,
-            }),
+            origin: Some(origin),
             values: PyOnceLock::new(),
         }
     }
@@ -75,13 +66,12 @@ impl Violation {
     fn values(&self, py: Python<'_>) -> PyResult<&Values> {
         self.values.get_or_try_init(py, || match &self.origin {
             Some(origin) => {
-                let constants = Constants::get(py);
                 let (field, rule) = resolve_values(
                     py,
                     self.proto.bind(py),
                     origin.message.bind(py),
                     &origin.adapter,
-                    &constants,
+                    Constants::get(py),
                     &origin.imports,
                 )?;
                 Ok(Values { field, rule })
@@ -216,7 +206,8 @@ fn step_element<'py>(
     let Some(field) = hop.find_field(py, element, constants)? else {
         return Ok(None);
     };
-    let Ok(value) = hop.runtime.read_field(current, &field, constants) else {
+    let info = hop.runtime.field_info(py, &field, constants)?;
+    let Ok(Some(value)) = info.fetch(current, constants) else {
         return Ok(None);
     };
     Ok(Some((value, field)))
@@ -299,7 +290,7 @@ fn resolve_rule_value<'py>(
     } else {
         rules_of(
             py,
-            adapter.descriptor(py),
+            &adapter.descriptor(py),
             adapter,
             constants,
             imports,
@@ -360,10 +351,10 @@ fn rules_of<'py>(
     Ok(options.get_item(extension.bind(py)).ok())
 }
 
-/// Turns the serialized `buf.validate.Violations` from C++ into wrappers.
+/// Turns the validator's serialized `buf.validate.Violations` into wrappers.
 ///
-/// No value resolution happens here: each wrapper keeps the proto the C++ side
-/// produced together with the message it came from, and `field_value` and
+/// No value resolution happens here: each wrapper keeps the proto the
+/// validator produced together with the message it came from, and `field_value` and
 /// `rule_value` are recovered from the paths on first access. Raising a
 /// `ValidationError` or reading `rule_id` never pays for path walking.
 pub fn build_violations<'py>(
@@ -383,15 +374,15 @@ pub fn build_violations<'py>(
     let violations = parsed
         .getattr(&constants.violations)?
         .cast_into::<PyList>()?;
+    let origin = Arc::new(Origin {
+        message: message.clone().unbind(),
+        adapter: adapter.clone_ref(py),
+        imports: Arc::clone(imports),
+    });
     PyList::new(
         py,
-        violations.iter().map(|violation| {
-            Violation::deferred(
-                violation.unbind(),
-                message.clone().unbind(),
-                adapter.clone_ref(py),
-                Arc::clone(imports),
-            )
-        }),
+        violations
+            .iter()
+            .map(|violation| Violation::deferred(violation.unbind(), Arc::clone(&origin))),
     )
 }

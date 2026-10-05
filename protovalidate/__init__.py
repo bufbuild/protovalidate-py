@@ -14,7 +14,7 @@
 
 """The semantic validation library for Protobuf in Python.
 
-Validation is performed by protovalidate-cc, compiled into the
+Validation is performed by the protovalidate Rust crate, compiled into the
 ``protovalidate._protovalidate`` extension module. Apart from
 ``ValidationError``, which PyO3 cannot define while ``abi3`` is enabled,
 everything here is implemented natively and re-exported at the path it has

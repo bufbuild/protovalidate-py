@@ -20,17 +20,20 @@
 
 from __future__ import annotations
 
-from typing import Literal, TYPE_CHECKING, TypeAlias
+from typing import Literal, NoReturn, TYPE_CHECKING, TypeAlias
 
 from protobuf import Message
 from protobuf._codegen import file_desc
-from protobuf.wkt import timestamp_pb
+from protobuf.wkt import duration_pb, timestamp_pb, wrappers_pb
 
+from . import rules_pb
 from ....buf.validate import validate_pb
 
 if TYPE_CHECKING:
     from protobuf import DescFile, Oneof as Oneof_
-    from protobuf.wkt import Timestamp
+    from protobuf.wkt import Duration, Int32Value, Timestamp
+
+    from .rules_pb import TestEnum
 
 
 _MultipleValidationsFields: TypeAlias = Literal["title", "name"]
@@ -531,12 +534,644 @@ class ConcatenatedValues(Message[_ConcatenatedValuesFields]):
         bar: list[str]
         baz: list[str]
 
+_NestedMistypedRuleFields: TypeAlias = Literal["child"]
+
+class NestedMistypedRule(Message[_NestedMistypedRuleFields]):
+    """
+    A rule that does not compile is reported when a validation reaches it.
+
+    ```proto
+    message tests.example.v1.NestedMistypedRule
+    ```
+
+    Attributes:
+        child:
+            ```proto
+            optional tests.example.v1.ProtovalidateMistypedRule child = 1;
+            ```
+    """
+
+    __slots__ = ("child",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            child: ProtovalidateMistypedRule | None = None,
+        ) -> None:
+            pass
+
+        child: ProtovalidateMistypedRule | None
+
+_MessageRuleErrorFields: TypeAlias = NoReturn
+
+class MessageRuleError(Message[_MessageRuleErrorFields]):
+    """
+    ```proto
+    message tests.example.v1.MessageRuleError
+    ```
+    """
+
+    __slots__ = ()
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+        ) -> None:
+            pass
+
+_NestedMessageRuleErrorFields: TypeAlias = Literal["child"]
+
+class NestedMessageRuleError(Message[_NestedMessageRuleErrorFields]):
+    """
+    ```proto
+    message tests.example.v1.NestedMessageRuleError
+    ```
+
+    Attributes:
+        child:
+            ```proto
+            optional tests.example.v1.MessageRuleError child = 1;
+            ```
+    """
+
+    __slots__ = ("child",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            child: MessageRuleError | None = None,
+        ) -> None:
+            pass
+
+        child: MessageRuleError | None
+
+_ViolationBeforeErrorFields: TypeAlias = Literal["a", "b"]
+
+class ViolationBeforeError(Message[_ViolationBeforeErrorFields]):
+    """
+    ```proto
+    message tests.example.v1.ViolationBeforeError
+    ```
+
+    Attributes:
+        a:
+            ```proto
+            string a = 1;
+            ```
+        b:
+            ```proto
+            string b = 2;
+            ```
+    """
+
+    __slots__ = ("a", "b")
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            a: str = "",
+            b: str = "",
+        ) -> None:
+            pass
+
+        a: str
+        b: str
+
+_RepeatedFieldScalarRuleFields: TypeAlias = Literal["val"]
+
+class RepeatedFieldScalarRule(Message[_RepeatedFieldScalarRuleFields]):
+    """
+    A repeated or map field takes only `repeated` or `map` rules; rules for
+    its elements' type do not compile.
+
+    ```proto
+    message tests.example.v1.RepeatedFieldScalarRule
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            repeated string val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: list[str] | None = None,
+        ) -> None:
+            pass
+
+        val: list[str]
+
+_RepeatedFieldWrapperRuleFields: TypeAlias = Literal["val"]
+
+class RepeatedFieldWrapperRule(Message[_RepeatedFieldWrapperRuleFields]):
+    """
+    ```proto
+    message tests.example.v1.RepeatedFieldWrapperRule
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            repeated google.protobuf.Int32Value val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: list[Int32Value] | None = None,
+        ) -> None:
+            pass
+
+        val: list[Int32Value]
+
+_RepeatedFieldEnumRuleFields: TypeAlias = Literal["val"]
+
+class RepeatedFieldEnumRule(Message[_RepeatedFieldEnumRuleFields]):
+    """
+    ```proto
+    message tests.example.v1.RepeatedFieldEnumRule
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            repeated tests.example.v1.TestEnum val = 1 [packed = true];
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: list[TestEnum] | None = None,
+        ) -> None:
+            pass
+
+        val: list[TestEnum]
+
+_RepeatedFieldDurationRuleFields: TypeAlias = Literal["val"]
+
+class RepeatedFieldDurationRule(Message[_RepeatedFieldDurationRuleFields]):
+    """
+    ```proto
+    message tests.example.v1.RepeatedFieldDurationRule
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            repeated google.protobuf.Duration val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: list[Duration] | None = None,
+        ) -> None:
+            pass
+
+        val: list[Duration]
+
+_MapFieldScalarRuleFields: TypeAlias = Literal["val"]
+
+class MapFieldScalarRule(Message[_MapFieldScalarRuleFields]):
+    """
+    ```proto
+    message tests.example.v1.MapFieldScalarRule
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            map<string, string> val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: dict[str, str] | None = None,
+        ) -> None:
+            pass
+
+        val: dict[str, str]
+
+_RepeatedUniqueMessagesFields: TypeAlias = Literal["val"]
+
+class RepeatedUniqueMessages(Message[_RepeatedUniqueMessagesFields]):
+    """
+    `unique` compares scalars only, so it does not compile for messages.
+
+    ```proto
+    message tests.example.v1.RepeatedUniqueMessages
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            repeated tests.example.v1.Embed val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: list[Embed] | None = None,
+        ) -> None:
+            pass
+
+        val: list[Embed]
+
+_CelUniqueMessagesFields: TypeAlias = Literal["val"]
+
+class CelUniqueMessages(Message[_CelUniqueMessagesFields]):
+    """
+    In CEL the same call cannot be rejected until it runs.
+
+    ```proto
+    message tests.example.v1.CelUniqueMessages
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            repeated tests.example.v1.Embed val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: list[Embed] | None = None,
+        ) -> None:
+            pass
+
+        val: list[Embed]
+
+_TimestampOutOfRangeFields: TypeAlias = Literal["val"]
+
+class TimestampOutOfRange(Message[_TimestampOutOfRangeFields]):
+    """
+    10000-01-01T00:00:00Z, past the range a Timestamp allows.
+
+    ```proto
+    message tests.example.v1.TimestampOutOfRange
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            optional google.protobuf.Timestamp val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: Timestamp | None = None,
+        ) -> None:
+            pass
+
+        val: Timestamp | None
+
+_TimestampRuleOrderFields: TypeAlias = Literal["val"]
+
+class TimestampRuleOrder(Message[_TimestampRuleOrderFields]):
+    """
+    ```proto
+    message tests.example.v1.TimestampRuleOrder
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            optional google.protobuf.Timestamp val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: Timestamp | None = None,
+        ) -> None:
+            pass
+
+        val: Timestamp | None
+
+_EnumRuleOrderFields: TypeAlias = Literal["val"]
+
+class EnumRuleOrder(Message[_EnumRuleOrderFields]):
+    """
+    ```proto
+    message tests.example.v1.EnumRuleOrder
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            tests.example.v1.TestEnum val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: TestEnum | None = None,
+        ) -> None:
+            pass
+
+        val: TestEnum
+
+_HostnameFields: TypeAlias = Literal["val"]
+
+class Hostname(Message[_HostnameFields]):
+    """
+    ```proto
+    message tests.example.v1.Hostname
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            string val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: str = "",
+        ) -> None:
+            pass
+
+        val: str
+
+_DoubleInfinityFields: TypeAlias = Literal["val"]
+
+class DoubleInfinity(Message[_DoubleInfinityFields]):
+    """
+    ```proto
+    message tests.example.v1.DoubleInfinity
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            double val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: float = 0,
+        ) -> None:
+            pass
+
+        val: float
+
+_DoubleInfiniteRangeFields: TypeAlias = Literal["val"]
+
+class DoubleInfiniteRange(Message[_DoubleInfiniteRangeFields]):
+    """
+    ```proto
+    message tests.example.v1.DoubleInfiniteRange
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            double val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: float = 0,
+        ) -> None:
+            pass
+
+        val: float
+
+_PatternAsciiDigitsFields: TypeAlias = Literal["val"]
+
+class PatternAsciiDigits(Message[_PatternAsciiDigitsFields]):
+    """
+    Patterns are RE2: `\\d` is ASCII only, `\\Q...\\E` quotes literal text,
+    and repeat counts are capped at 1000.
+
+    ```proto
+    message tests.example.v1.PatternAsciiDigits
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            string val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: str = "",
+        ) -> None:
+            pass
+
+        val: str
+
+_PatternQuotedLiteralFields: TypeAlias = Literal["val"]
+
+class PatternQuotedLiteral(Message[_PatternQuotedLiteralFields]):
+    """
+    ```proto
+    message tests.example.v1.PatternQuotedLiteral
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            string val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: str = "",
+        ) -> None:
+            pass
+
+        val: str
+
+_PatternRepeatTooLargeFields: TypeAlias = Literal["val"]
+
+class PatternRepeatTooLarge(Message[_PatternRepeatTooLargeFields]):
+    """
+    ```proto
+    message tests.example.v1.PatternRepeatTooLarge
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            string val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: str = "",
+        ) -> None:
+            pass
+
+        val: str
+
+_UniqueWrappersFields: TypeAlias = Literal["val"]
+
+class UniqueWrappers(Message[_UniqueWrappersFields]):
+    """
+    A wrapper element stands for the scalar it holds, so `unique` compares
+    the inner values.
+
+    ```proto
+    message tests.example.v1.UniqueWrappers
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            repeated google.protobuf.Int32Value val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: list[Int32Value] | None = None,
+        ) -> None:
+            pass
+
+        val: list[Int32Value]
+
+_CelUniqueWrappersFields: TypeAlias = Literal["val"]
+
+class CelUniqueWrappers(Message[_CelUniqueWrappersFields]):
+    """
+    ```proto
+    message tests.example.v1.CelUniqueWrappers
+    ```
+
+    Attributes:
+        val:
+            ```proto
+            repeated google.protobuf.Int32Value val = 1;
+            ```
+    """
+
+    __slots__ = ("val",)
+
+    if TYPE_CHECKING:
+
+        def __init__(
+            self,
+            *,
+            val: list[Int32Value] | None = None,
+        ) -> None:
+            pass
+
+        val: list[Int32Value]
+
 
 _DESC = file_desc(
-    b'\n"tests/example/v1/validations.proto\x12\x10tests.example.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto"T\n\x13MultipleValidations\x12 \n\x05title\x18\x01 \x01(\tR\x05titleB\n\xbaH\x07r\x05:\x03foo\x12\x1b\n\x04name\x18\x02 \x01(\tR\x04nameB\x07\xbaH\x04r\x02\x10\x05")\n\x0cDoubleFinite\x12\x19\n\x03val\x18\x01 \x01(\x01R\x03valB\x07\xbaH\x04\x12\x02@\x01";\n\x0eSFixed64ExLTGT\x12)\n\x03val\x18\x01 \x01(\x10R\x03valB\x17\xbaH\x14b\x12\x11\x00\x00\x00\x00\x00\x00\x00\x00!\n\x00\x00\x00\x00\x00\x00\x00")\n\x0cTestOneofMsg\x12\x19\n\x03val\x18\x01 \x01(\x08R\x03valB\x07\xbaH\x04j\x02\x08\x01"q\n\x05Oneof\x12\x1a\n\x01x\x18\x01 \x01(\tH\x00R\x01xB\n\xbaH\x07r\x05:\x03foo\x12\x17\n\x01y\x18\x02 \x01(\x05H\x00R\x01yB\x07\xbaH\x04\x1a\x02 \x00\x12.\n\x01z\x18\x03 \x01(\x0b2\x1e.tests.example.v1.TestOneofMsgH\x00R\x01zB\x03\n\x01o"[\n\x12ProtovalidateOneof\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x0b\xbaH\x08"\x06\n\x01a\n\x01b"e\n\x1aProtovalidateOneofRequired\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\r\xbaH\n"\x08\n\x01a\n\x01b\x10\x01"p\n"ProtovalidateOneofUnknownFieldName\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x10\xbaH\r"\x0b\n\x01a\n\x01b\n\x03xxx"9\n\x19ProtovalidateMistypedRule\x12\x1c\n\x03val\x18\x01 \x01(\tR\x03valB\n\xbaH\x07\xaa\x01\x04*\x02\x08\x01"H\n\x0eTimestampGTNow\x126\n\x03val\x18\x01 \x01(\x0b2\x1a.google.protobuf.TimestampR\x03valB\x08\xbaH\x05\xb2\x01\x02@\x01"\x87\x01\n\tMapMinMax\x12B\n\x03val\x18\x01 \x03(\x0b2$.tests.example.v1.MapMinMax.ValEntryR\x03valB\n\xbaH\x07\x9a\x01\x04\x08\x02\x10\x04\x1a6\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x08R\x05value:\x028\x01"\x85\x01\n\x07MapKeys\x12B\n\x03val\x18\x01 \x03(\x0b2".tests.example.v1.MapKeys.ValEntryR\x03valB\x0c\xbaH\t\x9a\x01\x06"\x04B\x02\x10\x00\x1a6\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\x12R\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value:\x028\x01""\n\x05Embed\x12\x19\n\x03val\x18\x01 \x01(\x03R\x03valB\x07\xbaH\x04"\x02 \x00"K\n\x11RepeatedEmbedSkip\x126\n\x03val\x18\x01 \x03(\x0b2\x17.tests.example.v1.EmbedR\x03valB\x0b\xbaH\x08\x92\x01\x05"\x03\xd8\x01\x03"3\n\x0fInvalidRESyntax\x12 \n\x05value\x18\x01 \x01(\tR\x05valueB\n\xbaH\x07r\x052\x03^\\z"\xa9\x01\n\x12ConcatenatedValues\x12\x10\n\x03bar\x18\x01 \x03(\tR\x03bar\x12\x10\n\x03baz\x18\x02 \x03(\tR\x03baz:o\xbaHl\x1aj\n\x15globally_unique_names\x121all values in bar and baz must be globally unique\x1a\x1e(this.bar + this.baz).unique()B\x8a\x01\n\x14com.tests.example.v1B\x10ValidationsProtoP\x01\xa2\x02\x03TEX\xaa\x02\x10Tests.Example.V1\xca\x02\x10Tests\\Example\\V1\xe2\x02\x1cTests\\Example\\V1\\GPBMetadata\xea\x02\x12Tests::Example::V1b\x06proto3',
+    b'\n"tests/example/v1/validations.proto\x12\x10tests.example.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1ctests/example/v1/rules.proto"T\n\x13MultipleValidations\x12 \n\x05title\x18\x01 \x01(\tR\x05titleB\n\xbaH\x07r\x05:\x03foo\x12\x1b\n\x04name\x18\x02 \x01(\tR\x04nameB\x07\xbaH\x04r\x02\x10\x05")\n\x0cDoubleFinite\x12\x19\n\x03val\x18\x01 \x01(\x01R\x03valB\x07\xbaH\x04\x12\x02@\x01";\n\x0eSFixed64ExLTGT\x12)\n\x03val\x18\x01 \x01(\x10R\x03valB\x17\xbaH\x14b\x12\x11\x00\x00\x00\x00\x00\x00\x00\x00!\n\x00\x00\x00\x00\x00\x00\x00")\n\x0cTestOneofMsg\x12\x19\n\x03val\x18\x01 \x01(\x08R\x03valB\x07\xbaH\x04j\x02\x08\x01"q\n\x05Oneof\x12\x1a\n\x01x\x18\x01 \x01(\tH\x00R\x01xB\n\xbaH\x07r\x05:\x03foo\x12\x17\n\x01y\x18\x02 \x01(\x05H\x00R\x01yB\x07\xbaH\x04\x1a\x02 \x00\x12.\n\x01z\x18\x03 \x01(\x0b2\x1e.tests.example.v1.TestOneofMsgH\x00R\x01zB\x03\n\x01o"[\n\x12ProtovalidateOneof\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x0b\xbaH\x08"\x06\n\x01a\n\x01b"e\n\x1aProtovalidateOneofRequired\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\r\xbaH\n"\x08\n\x01a\n\x01b\x10\x01"p\n"ProtovalidateOneofUnknownFieldName\x12\x0c\n\x01a\x18\x01 \x01(\tR\x01a\x12\x0c\n\x01b\x18\x02 \x01(\tR\x01b\x12\x1c\n\tunrelated\x18\x03 \x01(\x08R\tunrelated:\x10\xbaH\r"\x0b\n\x01a\n\x01b\n\x03xxx"9\n\x19ProtovalidateMistypedRule\x12\x1c\n\x03val\x18\x01 \x01(\tR\x03valB\n\xbaH\x07\xaa\x01\x04*\x02\x08\x01"H\n\x0eTimestampGTNow\x126\n\x03val\x18\x01 \x01(\x0b2\x1a.google.protobuf.TimestampR\x03valB\x08\xbaH\x05\xb2\x01\x02@\x01"\x87\x01\n\tMapMinMax\x12B\n\x03val\x18\x01 \x03(\x0b2$.tests.example.v1.MapMinMax.ValEntryR\x03valB\n\xbaH\x07\x9a\x01\x04\x08\x02\x10\x04\x1a6\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x08R\x05value:\x028\x01"\x85\x01\n\x07MapKeys\x12B\n\x03val\x18\x01 \x03(\x0b2".tests.example.v1.MapKeys.ValEntryR\x03valB\x0c\xbaH\t\x9a\x01\x06"\x04B\x02\x10\x00\x1a6\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\x12R\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value:\x028\x01""\n\x05Embed\x12\x19\n\x03val\x18\x01 \x01(\x03R\x03valB\x07\xbaH\x04"\x02 \x00"K\n\x11RepeatedEmbedSkip\x126\n\x03val\x18\x01 \x03(\x0b2\x17.tests.example.v1.EmbedR\x03valB\x0b\xbaH\x08\x92\x01\x05"\x03\xd8\x01\x03"3\n\x0fInvalidRESyntax\x12 \n\x05value\x18\x01 \x01(\tR\x05valueB\n\xbaH\x07r\x052\x03^\\z"\xa9\x01\n\x12ConcatenatedValues\x12\x10\n\x03bar\x18\x01 \x03(\tR\x03bar\x12\x10\n\x03baz\x18\x02 \x03(\tR\x03baz:o\xbaHl\x1aj\n\x15globally_unique_names\x121all values in bar and baz must be globally unique\x1a\x1e(this.bar + this.baz).unique()"W\n\x12NestedMistypedRule\x12A\n\x05child\x18\x01 \x01(\x0b2+.tests.example.v1.ProtovalidateMistypedRuleR\x05child"2\n\x10MessageRuleError:\x1e\xbaH\x1b\x1a\x19\n\x12message_rule_error\x1a\x031 +"R\n\x16NestedMessageRuleError\x128\n\x05child\x18\x01 \x01(\x0b2".tests.example.v1.MessageRuleErrorR\x05child"G\n\x14ViolationBeforeError\x12\x15\n\x01a\x18\x01 \x01(\tR\x01aB\x07\xbaH\x04r\x02\x10\x05\x12\x18\n\x01b\x18\x02 \x01(\tR\x01bB\n\xbaH\x07\xaa\x01\x04*\x02\x08\x01"4\n\x17RepeatedFieldScalarRule\x12\x19\n\x03val\x18\x01 \x03(\tR\x03valB\x07\xbaH\x04r\x02\x10\x03"R\n\x18RepeatedFieldWrapperRule\x126\n\x03val\x18\x01 \x03(\x0b2\x1b.google.protobuf.Int32ValueR\x03valB\x07\xbaH\x04\x1a\x02 \n"O\n\x15RepeatedFieldEnumRule\x126\n\x03val\x18\x01 \x03(\x0e2\x1a.tests.example.v1.TestEnumR\x03valB\x08\xbaH\x05\x82\x01\x02\x10\x01"T\n\x19RepeatedFieldDurationRule\x127\n\x03val\x18\x01 \x03(\x0b2\x19.google.protobuf.DurationR\x03valB\n\xbaH\x07\xaa\x01\x04*\x02\x08\x01"\x96\x01\n\x12MapFieldScalarRule\x12H\n\x03val\x18\x01 \x03(\x0b2-.tests.example.v1.MapFieldScalarRule.ValEntryR\x03valB\x07\xbaH\x04r\x02\x10\x03\x1a6\n\x08ValEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value:\x028\x01"M\n\x16RepeatedUniqueMessages\x123\n\x03val\x18\x01 \x03(\x0b2\x17.tests.example.v1.EmbedR\x03valB\x08\xbaH\x05\x92\x01\x02\x18\x01"v\n\x11CelUniqueMessages\x12a\n\x03val\x18\x01 \x03(\x0b2\x17.tests.example.v1.EmbedR\x03valB6\xbaH3\xba\x010\n\x0funique_messages\x12\x0emust be unique\x1a\rthis.unique()"T\n\x13TimestampOutOfRange\x12=\n\x03val\x18\x01 \x01(\x0b2\x1a.google.protobuf.TimestampR\x03valB\x0f\xbaH\x0c\xb2\x01\t\x12\x07\x08\x80\x83\xd1\xff\xaf\x07"P\n\x12TimestampRuleOrder\x12:\n\x03val\x18\x01 \x01(\x0b2\x1a.google.protobuf.TimestampR\x03valB\x0c\xbaH\t\xb2\x01\x06\x12\x02\x08\x018\x01"M\n\rEnumRuleOrder\x12<\n\x03val\x18\x01 \x01(\x0e2\x1a.tests.example.v1.TestEnumR\x03valB\x0e\xbaH\x0b\x82\x01\x08\x08\x01\x10\x01\x18\x01 \x05"%\n\x08Hostname\x12\x19\n\x03val\x18\x01 \x01(\tR\x03valB\x07\xbaH\x04r\x02h\x01"2\n\x0eDoubleInfinity\x12 \n\x03val\x18\x01 \x01(\x01R\x03valB\x0e\xbaH\x0b\x12\t\t\x00\x00\x00\x00\x00\x00\xf0\x7f"@\n\x13DoubleInfiniteRange\x12)\n\x03val\x18\x01 \x01(\x01R\x03valB\x17\xbaH\x14\x12\x12\x11\x00\x00\x00\x00\x00\x00\xf0\x7f!\x00\x00\x00\x00\x00\x00\xf0\xff"4\n\x12PatternAsciiDigits\x12\x1e\n\x03val\x18\x01 \x01(\tR\x03valB\x0c\xbaH\tr\x072\x05^\\d+$":\n\x14PatternQuotedLiteral\x12"\n\x03val\x18\x01 \x01(\tR\x03valB\x10\xbaH\rr\x0b2\t^\\Qa.c\\E$"9\n\x15PatternRepeatTooLarge\x12 \n\x03val\x18\x01 \x01(\tR\x03valB\x0e\xbaH\x0br\t2\x07a{1001}"I\n\x0eUniqueWrappers\x127\n\x03val\x18\x01 \x03(\x0b2\x1b.google.protobuf.Int32ValueR\x03valB\x08\xbaH\x05\x92\x01\x02\x18\x01"z\n\x11CelUniqueWrappers\x12e\n\x03val\x18\x01 \x03(\x0b2\x1b.google.protobuf.Int32ValueR\x03valB6\xbaH3\xba\x010\n\x0funique_wrappers\x12\x0emust be unique\x1a\rthis.unique()B\x8a\x01\n\x14com.tests.example.v1B\x10ValidationsProtoP\x01\xa2\x02\x03TEX\xaa\x02\x10Tests.Example.V1\xca\x02\x10Tests\\Example\\V1\xe2\x02\x1cTests\\Example\\V1\\GPBMetadata\xea\x02\x12Tests::Example::V1b\x06proto3',
     [
         validate_pb.desc(),
+        duration_pb.desc(),
         timestamp_pb.desc(),
+        wrappers_pb.desc(),
+        rules_pb.desc(),
     ],
     {
         "MultipleValidations": MultipleValidations,
@@ -555,6 +1190,28 @@ _DESC = file_desc(
         "RepeatedEmbedSkip": RepeatedEmbedSkip,
         "InvalidRESyntax": InvalidRESyntax,
         "ConcatenatedValues": ConcatenatedValues,
+        "NestedMistypedRule": NestedMistypedRule,
+        "MessageRuleError": MessageRuleError,
+        "NestedMessageRuleError": NestedMessageRuleError,
+        "ViolationBeforeError": ViolationBeforeError,
+        "RepeatedFieldScalarRule": RepeatedFieldScalarRule,
+        "RepeatedFieldWrapperRule": RepeatedFieldWrapperRule,
+        "RepeatedFieldEnumRule": RepeatedFieldEnumRule,
+        "RepeatedFieldDurationRule": RepeatedFieldDurationRule,
+        "MapFieldScalarRule": MapFieldScalarRule,
+        "RepeatedUniqueMessages": RepeatedUniqueMessages,
+        "CelUniqueMessages": CelUniqueMessages,
+        "TimestampOutOfRange": TimestampOutOfRange,
+        "TimestampRuleOrder": TimestampRuleOrder,
+        "EnumRuleOrder": EnumRuleOrder,
+        "Hostname": Hostname,
+        "DoubleInfinity": DoubleInfinity,
+        "DoubleInfiniteRange": DoubleInfiniteRange,
+        "PatternAsciiDigits": PatternAsciiDigits,
+        "PatternQuotedLiteral": PatternQuotedLiteral,
+        "PatternRepeatTooLarge": PatternRepeatTooLarge,
+        "UniqueWrappers": UniqueWrappers,
+        "CelUniqueWrappers": CelUniqueWrappers,
     },
 )
 

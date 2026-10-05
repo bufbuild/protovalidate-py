@@ -17,6 +17,15 @@
     },
     {
       "matchManagers": [
+        "git-submodules"
+      ],
+      // third_party/ is checked out by `poe generate-vendored` at the pinned
+      // cel-cpp and the versions bazel resolves for it. Moving a submodule on
+      // its own would desync it from the filelists and gen/.
+      "enabled": false
+    },
+    {
+      "matchManagers": [
         "pep621"
       ],
       "matchDepTypes": [
