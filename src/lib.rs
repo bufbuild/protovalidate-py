@@ -27,7 +27,7 @@ use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::import_exception;
 use pyo3::prelude::*;
 use pyo3::sync::{PyOnceLock, RwLockExt};
-use pyo3::types::{PyBytes, PyList, PyString};
+use pyo3::types::{PyList, PyString};
 
 use protovalidate::{DescriptorError, Error};
 

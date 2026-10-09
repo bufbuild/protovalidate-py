@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
-use pyo3::types::{PyBytes, PyDict, PyList, PyString};
+use pyo3::types::{PyDict, PyList, PyString};
 
 use crate::constants::{Constants, Imports};
 use crate::hints::{PbFieldPath, ViolationProto};
