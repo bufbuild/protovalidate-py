@@ -18,18 +18,12 @@ import pytest
 
 pytest.importorskip("google.protobuf", reason="optional dependency not installed")
 
-
-from typing import TYPE_CHECKING
-
 import protovalidate
 from protovalidate import Violation
 
 from ._utils import ValidatorProtocol, check_valid, compare_violations
 from .conftest import make_validator
 from .gen.tests.example.v1 import validations_pb2
-
-if TYPE_CHECKING:
-    from google.protobuf import message as google_message
 
 validators: list[ValidatorProtocol] = [
     protovalidate,  # global module singleton
@@ -61,7 +55,7 @@ def test_legacy_message_invalid(validator: ValidatorProtocol) -> None:
     with pytest.raises(protovalidate.ValidationError) as exc_info:
         validator.validate(msg)
     e = exc_info.value
-    assert str(e) == f"invalid {msg.DESCRIPTOR.name}"
+    assert str(e) == "val: must be finite [double.finite]"
     compare_violations(e.violations, [expected_violation])  # ty: ignore
 
     violations = validator.collect_violations(msg)
@@ -83,18 +77,3 @@ def test_legacy_message_map_key(validator: ValidatorProtocol) -> None:
 
     violations = validator.collect_violations(msg)
     compare_violations(violations, [expected_violation])
-
-
-def check_invalid(
-    validator: ValidatorProtocol, msg: google_message.Message, expected: list[Violation]
-) -> None:
-    # Test validate
-    with pytest.raises(protovalidate.ValidationError) as exc_info:
-        validator.validate(msg)
-    e = exc_info.value
-    assert str(e) == f"invalid {msg.DESCRIPTOR.name}"
-    compare_violations(e.violations, expected)  # ty: ignore
-
-    # Test collect_violations
-    violations = validator.collect_violations(msg)
-    compare_violations(violations, expected)

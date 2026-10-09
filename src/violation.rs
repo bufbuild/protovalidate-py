@@ -359,7 +359,7 @@ fn rules_of<'py>(
 /// `ValidationError` or reading `rule_id` never pays for path walking.
 pub fn build_violations<'py>(
     py: Python<'py>,
-    serialized: &Bound<'py, PyBytes>,
+    serialized: &[u8],
     message: &Bound<'py, PyAny>,
     adapter: &ProtoAdapter,
     constants: &Constants,

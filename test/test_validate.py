@@ -51,7 +51,9 @@ def test_ninf(validator: ValidatorProtocol) -> None:
         rule_value=True,
     )
 
-    check_invalid(validator, msg, [expected_violation])
+    check_invalid(
+        validator, msg, [expected_violation], "val: must be finite [double.finite]"
+    )
 
 
 @pytest.mark.parametrize("validator", validators)
@@ -67,7 +69,9 @@ def test_map_key(validator: ValidatorProtocol) -> None:
         rule_value=0,
     )
 
-    check_invalid(validator, msg, [expected_violation])
+    check_invalid(
+        validator, msg, [expected_violation], "val[1]: must be less than 0 [sint64.lt]"
+    )
 
 
 @pytest.mark.parametrize("validator", validators)
@@ -102,7 +106,12 @@ def test_protovalidate_oneof_violation(validator: ValidatorProtocol) -> None:
         message="only one of a, b can be set", rule_id="message.oneof"
     )
 
-    check_invalid(validator, msg, [expected_violation])
+    check_invalid(
+        validator,
+        msg,
+        [expected_violation],
+        "only one of a, b can be set [message.oneof]",
+    )
 
 
 @pytest.mark.parametrize("validator", validators)
@@ -113,7 +122,9 @@ def test_protovalidate_oneof_required_violation(validator: ValidatorProtocol) ->
         message="one of a, b must be set", rule_id="message.oneof"
     )
 
-    check_invalid(validator, msg, [expected_violation])
+    check_invalid(
+        validator, msg, [expected_violation], "one of a, b must be set [message.oneof]"
+    )
 
 
 @pytest.mark.parametrize("validator", validators)
@@ -158,7 +169,12 @@ def test_maps(validator: ValidatorProtocol) -> None:
         rule_value=2,
     )
 
-    check_invalid(validator, msg, [expected_violation])
+    check_invalid(
+        validator,
+        msg,
+        [expected_violation],
+        "val: map must be at least 2 entries [map.min_pairs]",
+    )
 
 
 @pytest.mark.parametrize("validator", validators)
@@ -189,7 +205,12 @@ def test_multiple_validations(validator: ValidatorProtocol) -> None:
         rule_value=5,
     )
 
-    check_invalid(validator, msg, [expected_violation1, expected_violation2])
+    check_invalid(
+        validator,
+        msg,
+        [expected_violation1, expected_violation2],
+        "title: does not have prefix `foo` [string.prefix], and 1 more violation",
+    )
 
 
 @pytest.mark.parametrize("validator", validators)
@@ -217,7 +238,7 @@ def test_fail_fast(validator: ValidatorProtocol) -> None:
     with pytest.raises(protovalidate.ValidationError) as cm:
         validator.validate(msg, fail_fast=True)
     e = cm.value
-    assert str(e) == f"invalid {type(msg).desc().name}"
+    assert str(e) == "title: does not have prefix `foo` [string.prefix]"
     compare_violations(e.violations, [expected_violation])  # ty: ignore
 
     # Test collect_violations
@@ -226,16 +247,16 @@ def test_fail_fast(validator: ValidatorProtocol) -> None:
 
 
 def check_invalid(
-    validator: ValidatorProtocol, msg: protobuf.Message, expected: list[Violation]
+    validator: ValidatorProtocol,
+    msg: protobuf.Message,
+    expected: list[Violation],
+    expected_message: str,
 ) -> None:
     # Test validate
     with pytest.raises(protovalidate.ValidationError) as exc_info:
         validator.validate(msg)
     e = exc_info.value
-    if isinstance(msg, protobuf.Message):
-        assert str(e) == f"invalid {type(msg).desc().name}"
-    else:
-        assert str(e) == f"invalid {msg.DESCRIPTOR.name}"
+    assert str(e) == expected_message
     compare_violations(e.violations, expected)  # ty: ignore
 
     # Test collect_violations

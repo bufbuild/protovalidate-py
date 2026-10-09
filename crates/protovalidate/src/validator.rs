@@ -25,17 +25,8 @@ use crate::protobuf::{Reader, Runtime};
 use crate::rules::ValidatorCache;
 use crate::rules::build::{self, Builder};
 use crate::rules::eval::Walk;
-use crate::validate::{Violation as ViolationPb, Violations};
+use crate::validate::Violation as ViolationPb;
 use crate::{DescriptorError, Error, ValidationError};
-
-/// The violations as a serialized `buf.validate.Violations`.
-fn encode_violations(violations: Vec<ViolationPb>) -> Vec<u8> {
-    Violations {
-        violations,
-        ..Default::default()
-    }
-    .encode_to_vec()
-}
 
 /// Appended to a panic that only a broken build can reach.
 const BUILD_BUG: &str = "this is a bug in protovalidate, please report it";
@@ -152,9 +143,7 @@ impl<R: Runtime> Validator<R> {
         if violations.is_empty() {
             return Ok(());
         }
-        Err(Error::Validation(ValidationError::new(encode_violations(
-            violations,
-        ))))
+        Err(Error::Validation(ValidationError::new(violations)))
     }
 
     fn run(

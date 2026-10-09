@@ -145,17 +145,13 @@ impl Validator {
         message: PbMessage<'_, '_>,
         fail_fast: bool,
     ) -> PyResult<()> {
-        let (adapter, violations) = self.collect(py, message, fail_fast)?;
-        if violations.0.is_empty() {
+        let Some(invalid) = self.check(py, message, fail_fast)? else {
             return Ok(());
-        }
-        let name = adapter
-            .descriptor(py)
-            .getattr(&self.constants.name)?
-            .cast_into::<PyString>()?;
+        };
+        let violations = self.violations(py, message, &invalid)?;
         Err(ValidationError::new_err((
-            format!("invalid {}", name.to_str()?),
-            violations.0.unbind(),
+            invalid.error.to_string(),
+            violations.unbind(),
         )))
     }
 
@@ -185,45 +181,60 @@ impl Validator {
         message: PbMessage<'_, 'py>,
         fail_fast: bool,
     ) -> PyResult<ViolationList<'py>> {
-        Ok(self.collect(py, message, fail_fast)?.1)
+        Ok(ViolationList(match self.check(py, message, fail_fast)? {
+            None => PyList::empty(py),
+            Some(invalid) => self.violations(py, message, &invalid)?,
+        }))
     }
 }
 
+/// A message with validation errors.
+struct Invalid {
+    adapter: ProtoAdapter,
+    error: protovalidate::ValidationError,
+}
+
 impl Validator {
-    /// Resolves a message and collects its violations.
-    fn collect<'py>(
+    /// Resolves a message and validates it, returning `None` when it is
+    /// valid.
+    fn check(
         &self,
-        py: Python<'py>,
-        message: PbMessage<'_, 'py>,
+        py: Python<'_>,
+        message: PbMessage<'_, '_>,
         fail_fast: bool,
-    ) -> PyResult<(ProtoAdapter, ViolationList<'py>)> {
+    ) -> PyResult<Option<Invalid>> {
         let adapter = ProtoAdapter::resolve(&message.0, self.constants)?;
         let engine = self.engine(py, adapter.runtime)?;
         let file = adapter.descriptor(py).getattr(&self.constants.file)?;
         engine.register(py, adapter.runtime, &file, self.constants)?;
 
         let type_name = adapter.type_name(py, self.constants)?;
-        let Some(serialized) = self.evaluate(
+        let error = self.evaluate(
             py,
             engine,
             &adapter,
             type_name.to_str()?,
             &message.0,
             fail_fast,
-        )?
-        else {
-            return Ok((adapter, ViolationList(PyList::empty(py))));
-        };
-        let violations = violation::build_violations(
+        )?;
+        Ok(error.map(|error| Invalid { adapter, error }))
+    }
+
+    /// Converts the violation errors to Python violations.
+    fn violations<'py>(
+        &self,
+        py: Python<'py>,
+        message: PbMessage<'_, 'py>,
+        invalid: &Invalid,
+    ) -> PyResult<Bound<'py, PyList>> {
+        violation::build_violations(
             py,
-            &serialized,
+            &invalid.error.encode_violations(),
             &message.0,
-            &adapter,
+            &invalid.adapter,
             self.constants,
             &self.imports,
         )
-        .map(ViolationList)?;
-        Ok((adapter, violations))
     }
 
     /// Returns the engine for `runtime`.
@@ -243,8 +254,8 @@ impl Validator {
         })
     }
 
-    /// Validates the message in place, returning serialized violations, or
-    /// `None` when the message is valid.
+    /// Validates the message in place, returning its violations, or `None`
+    /// when the message is valid.
     ///
     /// Reading the message calls into Python, so the interpreter stays
     /// attached throughout; the core lock is taken with the
@@ -258,7 +269,7 @@ impl Validator {
         type_name: &str,
         message: &Bound<'py, PyAny>,
         fail_fast: bool,
-    ) -> PyResult<Option<Bound<'py, PyBytes>>> {
+    ) -> PyResult<Option<protovalidate::ValidationError>> {
         let core = engine
             .core
             .read_py_attached(py)
@@ -271,7 +282,7 @@ impl Validator {
         let ctx = Ctx::new(py, adapter.runtime, self.constants, message, source);
         match core.validate_message(type_name, &ctx, fail_fast) {
             Ok(()) => Ok(None),
-            Err(Error::Validation(error)) => Ok(Some(PyBytes::new(py, error.violations()))),
+            Err(Error::Validation(error)) => Ok(Some(error)),
             Err(error) => Err(to_py_err(error)),
         }
     }
