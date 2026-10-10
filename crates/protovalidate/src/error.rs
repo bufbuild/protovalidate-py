@@ -118,7 +118,7 @@ impl fmt::Debug for ValidationError {
 }
 
 /// The first violation, followed by the number of others.
-/// For example, `user.email: must be a valid email address [string.email], and 2 more violations`.
+/// For example, `user.email: must be a valid email address, and 2 more violations`.
 impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_violation(f, &self.violations[0])?;
@@ -130,24 +130,21 @@ impl fmt::Display for ValidationError {
     }
 }
 
-/// Writes `violation` as `<field path>: <message> [<rule id>]`, omitting the
-/// parts that are empty.
+/// Writes `violation` as `<field path>: <message>`, or `[<rule id>]` in place
+/// of an empty message, omitting an empty field path.
 fn write_violation(f: &mut fmt::Formatter<'_>, violation: &ViolationPb) -> fmt::Result {
-    let message = violation.message.as_deref().unwrap_or_default();
-    let rule_id = violation.rule_id.as_deref().unwrap_or_default();
-    let mut separator = "";
     if !violation.field.elements.is_empty() {
         write_field_path(f, &violation.field)?;
-        separator = ": ";
+        f.write_str(": ")?;
     }
-    if !message.is_empty() {
-        write!(f, "{separator}{message}")?;
-        separator = " ";
+    match (
+        violation.message.as_deref().unwrap_or_default(),
+        violation.rule_id.as_deref().unwrap_or_default(),
+    ) {
+        ("", "") => f.write_str("[unknown]"),
+        ("", rule_id) => write!(f, "[{rule_id}]"),
+        (message, _) => f.write_str(message),
     }
-    if !rule_id.is_empty() {
-        write!(f, "{separator}[{rule_id}]")?;
-    }
-    Ok(())
 }
 
 fn write_field_path(f: &mut fmt::Formatter<'_>, path: &FieldPath) -> fmt::Result {
@@ -229,15 +226,15 @@ mod tests {
         ];
         assert_eq!(
             display(vec![violation(field, "must be set", "required")]),
-            r#"a.b[0][pkg.ext].c[true].d[-1].e[2].f["x\\\"\r\n"]: must be set [required]"#,
+            r#"a.b[0][pkg.ext].c[true].d[-1].e[2].f["x\\\"\r\n"]: must be set"#,
         );
     }
 
     #[test]
-    fn omits_empty_parts() {
+    fn falls_back_to_rule_id() {
         assert_eq!(
             display(vec![violation(vec![], "must be set", "required")]),
-            "must be set [required]",
+            "must be set",
         );
         assert_eq!(
             display(vec![violation(vec![element("a", None)], "", "custom")]),
@@ -245,9 +242,10 @@ mod tests {
         );
         assert_eq!(display(vec![violation(vec![], "", "custom")]), "[custom]");
         assert_eq!(
-            display(vec![violation(vec![element("a", None)], "bad", "")]),
-            "a: bad",
+            display(vec![violation(vec![element("a", None)], "", "")]),
+            "a: [unknown]",
         );
+        assert_eq!(display(vec![violation(vec![], "", "")]), "[unknown]");
     }
 
     #[test]
@@ -255,7 +253,7 @@ mod tests {
         let first = || violation(vec![element("a", None)], "bad", "rule");
         assert_eq!(
             display(vec![first(), violation(vec![], "", "other")]),
-            "a: bad [rule], and 1 more violation",
+            "a: bad, and 1 more violation",
         );
         assert_eq!(
             display(vec![
@@ -263,7 +261,7 @@ mod tests {
                 violation(vec![], "", "other"),
                 violation(vec![], "", "other"),
             ]),
-            "a: bad [rule], and 2 more violations",
+            "a: bad, and 2 more violations",
         );
     }
 }

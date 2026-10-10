@@ -55,7 +55,7 @@ def test_legacy_message_invalid(validator: ValidatorProtocol) -> None:
     with pytest.raises(protovalidate.ValidationError) as exc_info:
         validator.validate(msg)
     e = exc_info.value
-    assert str(e) == "val: must be finite [double.finite]"
+    assert str(e) == "val: must be finite"
     compare_violations(e.violations, [expected_violation])  # ty: ignore
 
     violations = validator.collect_violations(msg)
