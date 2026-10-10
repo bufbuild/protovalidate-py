@@ -43,8 +43,8 @@
 //!     Ok(()) => { /* valid */ }
 //!     Err(Error::Validation(e)) => {
 //!         // The message failed to evaluate against rules in the schema.
-//!         // e.violations() is a serialized buf.validate.Violations describing
-//!         // each failure.
+//!         // e.encode_violations() is a serialized buf.validate.Violations
+//!         // describing each failure.
 //!     }
 //!     // Validation itself failed: unknown type, rules that do not compile
 //!     // or evaluate.

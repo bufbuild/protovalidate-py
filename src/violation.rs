@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
-use pyo3::types::{PyBytes, PyDict, PyList, PyString};
+use pyo3::types::{PyDict, PyList, PyString};
 
 use crate::constants::{Constants, Imports};
 use crate::hints::{PbFieldPath, ViolationProto};
@@ -359,7 +359,7 @@ fn rules_of<'py>(
 /// `ValidationError` or reading `rule_id` never pays for path walking.
 pub fn build_violations<'py>(
     py: Python<'py>,
-    serialized: &Bound<'py, PyBytes>,
+    serialized: &[u8],
     message: &Bound<'py, PyAny>,
     adapter: &ProtoAdapter,
     constants: &Constants,
