@@ -35,7 +35,7 @@ protovalidate-deps = { path = "crates/protovalidate-deps" }
 buffa = "0.9.2"
 buffa-descriptor = { version = "0.9.2", features = ["reflect"] }
 buffa-types = { version = "0.9.2", features = ["reflect"] }
-cc = { version = "1.8.0", features = ["parallel"] }
+cc = { version = "1.10.0", features = ["parallel"] }
 foldhash = "0.2.0"
 iri-string = "0.7.14"
 jiff = { version = "0.2.38", default-features = false, features = ["std"] }
