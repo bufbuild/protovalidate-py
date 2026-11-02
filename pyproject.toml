@@ -38,14 +38,14 @@ dev-required = [
   "buf-bin==1.75.0",
   "fix-protobuf-imports==0.1.7",
   "license-header==0.0.1",
-  "maturin==1.15.0",
+  "maturin==1.16.0",
   "poethepoet==0.49.0",
-  "pydantic==2.14.1",
-  "pytest==9.1.1",
-  "pytest-benchmark==5.3.0",
-  "ruff==0.17.2",
-  "tombi==1.9.5",
-  "ty==0.0.91",
+  "pydantic==2.14.2",
+  "pytest==9.2.0",
+  "pytest-benchmark==5.3.1",
+  "ruff==0.17.3",
+  "tombi==1.9.8",
+  "ty==0.0.95",
   "types-protobuf==6.32.1.20260221",
 ]
 
@@ -56,7 +56,7 @@ dev-required = [
 dev-optional = [
   "protobuf>=6.31.0",
 ]
-docs = ["mkdocstrings-python==2.0.10", "zensical==0.0.72"]
+docs = ["mkdocstrings-python==2.0.10", "zensical==0.0.74"]
 
 [build-system]
 requires = ["maturin>=1.12,<2.0"]
