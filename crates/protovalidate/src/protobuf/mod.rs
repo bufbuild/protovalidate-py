@@ -287,7 +287,7 @@ pub trait Map<R: Runtime> {
         F: for<'k> FnMut(Key<'k, R>, Val<'k, R>) -> ControlFlow<B>;
 }
 
-/// A map entry's key, which is only read when the function is called.
+/// Access to a map entry's key, read lazily when required by a rule.
 pub type Key<'k, R> = &'k dyn Fn() -> Result<Val<'k, R>, <R as Runtime>::Error>;
 
 /// Reads a field of any kind as a [`Val`], by calling the [`Message`]

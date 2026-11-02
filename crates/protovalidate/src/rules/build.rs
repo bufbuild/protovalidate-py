@@ -895,9 +895,10 @@ impl<'a, R: Runtime> Builder<'a, R> {
         }
     }
 
-    /// The native checks of a target, with the fields they read. Rules with
-    /// nothing to check natively, such as map rules that only contain rules
-    /// for the values, read nothing.
+    /// The native checks of a target's own rules, with the fields they read.
+    /// The rules for a container's items are compiled for the items, so map
+    /// rules that only set `values` have no checks here. Without checks, it
+    /// returns `NativeChecks::None` and looks up no fields.
     fn native(&self, target: &Target<'_>, checks: Checks) -> Result<NativeChecks<R>, String> {
         if checks.is_empty() {
             return Ok(NativeChecks::None);

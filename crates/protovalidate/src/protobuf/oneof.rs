@@ -21,9 +21,6 @@ use super::{Field, Message, Runtime};
 
 /// A oneof of the message being validated. The validator passes it to
 /// [`Message::which_oneof`] to ask which of its members is set.
-///
-/// Synthetic oneofs, which proto3 uses for `optional` fields, are never
-/// passed. Each such field [tracks its own presence](Field::has_presence).
 pub struct Oneof<R: Runtime> {
     name: Cow<'static, str>,
     index: u32,
