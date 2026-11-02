@@ -23,6 +23,8 @@ from protovalidate._gen.buf.validate.validate_pb import (
     Violation as Violation2,
 )
 
+__all__ = ["Validator", "Violation"]
+
 @final
 class Validator:
     """Validate Protobuf messages against static rules.
