@@ -172,21 +172,31 @@ pub(crate) struct OneofValidator<R: Runtime> {
     pub members: Vec<(u32, FieldValidator<R>)>,
 }
 
-/// How a field is validated, decided when its rules are finalized.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Plan {
-    /// No rule reads the value. Only whether it is set matters, and only if
-    /// it is required.
-    Presence,
+/// What every field validator needs.
+pub(crate) struct FieldHeader<R: Runtime> {
+    pub field: Field<R>,
+    pub element: FieldPathElement,
+    pub required: bool,
+    /// Whether to skip the rules when the field is not set.
+    pub ignore_empty: bool,
+}
+
+/// The rules of one field, shaped by what validating the field needs.
+pub(crate) enum FieldValidator<R: Runtime> {
+    /// No rule reads the value. The field only has to be set, if it is
+    /// required.
+    Presence(FieldHeader<R>),
     /// A singular scalar or enum field whose only rules are native checks
     /// of its own kind, as [`scalar_checks`] confirms. Its value is read
     /// directly as its kind, rather than as a [`Val`](crate::protobuf::Val).
-    Scalar,
+    Scalar(FieldHeader<R>, Checks),
     /// A singular message field with no rules of its own, only those of its
-    /// message type.
-    Message,
-    /// Anything else, read as a [`Val`](crate::protobuf::Val).
-    Generic,
+    /// message type. An unset field is skipped.
+    Message(FieldHeader<R>, Nested),
+    /// Any other field, validated through its value, read as a
+    /// [`Val`](crate::protobuf::Val), and through the validators of its
+    /// items. The value's rules are boxed to keep the other variants small.
+    Value(FieldHeader<R>, Box<ValueValidator<R>>, FieldKind<R>),
 }
 
 /// Whether `checks` are the native checks for a value of kind `singular`,
@@ -220,20 +230,6 @@ pub(crate) fn scalar_checks(checks: &Checks, singular: Singular) -> bool {
             | (Checks::Bytes(_), Singular::Scalar(Scalar::Bytes))
             | (Checks::Enum(_), Singular::Enum)
     )
-}
-
-/// The rules of one field.
-pub(crate) struct FieldValidator<R: Runtime> {
-    pub field: Field<R>,
-    pub element: FieldPathElement,
-    pub required: bool,
-    /// Whether to skip the rules when the field is not set.
-    pub ignore_empty: bool,
-    /// The rules of the field's own value. For a container, that is the
-    /// whole list or map.
-    pub value: ValueValidator<R>,
-    pub kind: FieldKind<R>,
-    pub plan: Plan,
 }
 
 /// How a field holds its values, and the validators of the values inside a
@@ -334,7 +330,11 @@ pub(crate) fn nested_type<R: Runtime>(
 impl<R: Runtime> FieldValidator<R> {
     /// The message type of the field's values, if they are messages.
     pub(crate) fn nested_type(&self) -> Option<Nested> {
-        nested_type(&self.value, &self.kind)
+        match self {
+            Self::Presence(_) | Self::Scalar(..) => None,
+            Self::Message(_, nested) => Some(*nested),
+            Self::Value(_, value, kind) => nested_type(value, kind),
+        }
     }
 }
 

@@ -31,8 +31,9 @@ use super::standard::{
     has_duplicates, total_nanos,
 };
 use super::{
-    CelPrograms, FieldKind, FieldValidator, ItemValidator, MessageOneof, MessageValidator,
-    OneofValidator, Plan, ValidatorCache, ValidatorIndex, ValueValidator, WellKnownFields,
+    CelPrograms, FieldHeader, FieldKind, FieldValidator, ItemValidator, MessageOneof,
+    MessageValidator, Nested, OneofValidator, ValidatorCache, ValidatorIndex, ValueValidator,
+    WellKnownFields,
 };
 use crate::Error;
 use crate::cel::{self, Env, Frame, ScalarValue, This, Value};
@@ -432,18 +433,79 @@ impl<R: Runtime> OneofValidator<R> {
 }
 
 impl<R: Runtime> FieldValidator<R> {
-    /// Validates a [`Plan::Scalar`] field, reading its value with the
-    /// [`Message`](crate::protobuf::Message) method for its kind rather than
-    /// as a [`Val`].
-    fn validate_scalar<'a>(
+    /// Validates one field. `present` is whether the field is set, if the
+    /// caller already knows, as it does for the set member of a oneof.
+    fn validate<'a>(
+        &'a self,
+        walk: &mut Walk<'a, R>,
+        message: &R::Message<'_>,
+        frame: &CelFrame<'_, '_, R>,
+        present: Option<bool>,
+    ) -> Result<(), Abort<R::Error>> {
+        match self {
+            Self::Presence(header) => header.validate_presence(walk, message, present),
+            Self::Scalar(header, checks) => header.validate_scalar(checks, walk, message, present),
+            Self::Message(header, nested) => {
+                header.validate_message(*nested, walk, message, present)
+            }
+            Self::Value(header, value, kind) => {
+                header.validate_value(value, kind, walk, message, frame, present)
+            }
+        }
+    }
+}
+
+impl<R: Runtime> FieldHeader<R> {
+    /// Returns whether the field is set, when `present` already says so or
+    /// the field tracks presence. For any other field, it returns `None`,
+    /// because whether the field is set depends on its value.
+    fn presence(
+        &self,
+        message: &R::Message<'_>,
+        present: Option<bool>,
+    ) -> Result<Option<bool>, Abort<R::Error>> {
+        Ok(match present {
+            Some(present) => Some(present),
+            None if self.field.has_presence() => Some(message.has(&self.field).read()?),
+            None => None,
+        })
+    }
+
+    /// Validates a [`FieldValidator::Presence`] field, whose value no rule
+    /// reads. It only needs to be set, and only if it is required.
+    fn validate_presence<'a>(
         &'a self,
         walk: &mut Walk<'a, R>,
         message: &R::Message<'_>,
         present: Option<bool>,
     ) -> Result<(), Abort<R::Error>> {
-        let value = &self.value;
+        if !self.required {
+            return Ok(());
+        }
+        let set = match present {
+            Some(present) => present,
+            None if self.field.has_presence() => message.has(&self.field).read()?,
+            None => is_set::<R>(read::<R>(message, &self.field).read()?.as_ref())?,
+        };
+        if set {
+            return Ok(());
+        }
+        self.missing(walk)
+    }
+
+    /// Validates a [`FieldValidator::Scalar`] field, reading its value with
+    /// the [`Message`](crate::protobuf::Message) method for its kind rather
+    /// than as a [`Val`].
+    fn validate_scalar<'a>(
+        &'a self,
+        checks: &'a Checks,
+        walk: &mut Walk<'a, R>,
+        message: &R::Message<'_>,
+        present: Option<bool>,
+    ) -> Result<(), Abort<R::Error>> {
+        let present = self.presence(message, present)?;
         let field = &self.field;
-        match (&value.checks, field.kind()) {
+        match (checks, field.kind()) {
             (Checks::Bool(checks), Kind::Singular(Singular::Scalar(Scalar::Bool))) => self.scalar(
                 walk,
                 present,
@@ -525,7 +587,7 @@ impl<R: Runtime> FieldValidator<R> {
                     },
                 )
             }
-            _ => unreachable!("a scalar plan is only chosen for checks of the field's kind"),
+            _ => unreachable!("a scalar field validator holds checks of the field's kind"),
         }
     }
 
@@ -563,33 +625,12 @@ impl<R: Runtime> FieldValidator<R> {
         walk.at(&self.element, |walk| check(&mut walk.out, &value))
     }
 
-    /// Validates a [`Plan::Presence`] field, whose value no rule reads. It
-    /// only needs to be set, and only if it is required.
-    fn validate_presence<'a>(
-        &'a self,
-        walk: &mut Walk<'a, R>,
-        message: &R::Message<'_>,
-        present: Option<bool>,
-    ) -> Result<(), Abort<R::Error>> {
-        if !self.required {
-            return Ok(());
-        }
-        let set = match present {
-            Some(present) => present,
-            None if self.field.has_presence() => message.has(&self.field).read()?,
-            None => is_set::<R>(read::<R>(message, &self.field).read()?.as_ref())?,
-        };
-        if set {
-            return Ok(());
-        }
-        self.missing(walk)
-    }
-
-    /// Validates a [`Plan::Message`] field. An unset field is skipped unless
-    /// it is required, and a set field is validated by its message type's
-    /// rules alone, without a [`Val`].
+    /// Validates a [`FieldValidator::Message`] field. An unset field is
+    /// skipped unless it is required, and a set field is validated by the
+    /// rules of its message type `nested` alone, without a [`Val`].
     fn validate_message<'a>(
         &'a self,
+        nested: Nested,
         walk: &mut Walk<'a, R>,
         message: &R::Message<'_>,
         present: Option<bool>,
@@ -610,9 +651,6 @@ impl<R: Runtime> FieldValidator<R> {
         let Some(sub) = message.get_message(&self.field).read()? else {
             return Ok(());
         };
-        let Some(nested) = self.value.nested else {
-            unreachable!("a message field is only planned as such with a nested type");
-        };
         let validator = walk.validator(nested.validator)?;
         let frame = CelFrame::new(walk.env, walk.pool, nested.message, &sub);
         walk.at(&self.element, |walk| validator.validate(walk, &sub, &frame))
@@ -627,31 +665,21 @@ impl<R: Runtime> FieldValidator<R> {
         })
     }
 
-    /// Validates one field. `present` is whether the field is set, if the
-    /// caller already knows, as it does for the set member of a oneof.
-    fn validate<'a>(
+    /// Validates a [`FieldValidator::Value`] field through its value, read
+    /// as a [`Val`], and then through the validators of its items.
+    fn validate_value<'a>(
         &'a self,
+        value: &'a ValueValidator<R>,
+        kind: &'a FieldKind<R>,
         walk: &mut Walk<'a, R>,
         message: &R::Message<'_>,
         frame: &CelFrame<'_, '_, R>,
         present: Option<bool>,
     ) -> Result<(), Abort<R::Error>> {
-        match self.plan {
-            Plan::Presence => return self.validate_presence(walk, message, present),
-            Plan::Message => return self.validate_message(walk, message, present),
-            Plan::Scalar | Plan::Generic => {}
-        }
-        let present = match present {
-            Some(present) => Some(present),
-            None if self.field.has_presence() => Some(message.has(&self.field).read()?),
-            None => None,
-        };
-        if self.plan == Plan::Scalar {
-            return self.validate_scalar(walk, message, present);
-        }
+        let present = self.presence(message, present)?;
         // An unset field whose value would not be used is not read. In
         // particular, this skips unset oneof members and message fields.
-        let value = if present == Some(false) && (self.required || self.ignore_empty) {
+        let val = if present == Some(false) && (self.required || self.ignore_empty) {
             None
         } else {
             read::<R>(message, &self.field).read()?
@@ -662,7 +690,7 @@ impl<R: Runtime> FieldValidator<R> {
         if self.required || self.ignore_empty {
             let set = match present {
                 Some(present) => present,
-                None => is_set::<R>(value.as_ref())?,
+                None => is_set::<R>(val.as_ref())?,
             };
             if !set {
                 return if self.required {
@@ -674,11 +702,10 @@ impl<R: Runtime> FieldValidator<R> {
         }
 
         walk.at(&self.element, |walk| {
-            self.value
-                .validate(walk, value.as_ref(), CelBind::Field(frame, &self.field))
+            value.validate(walk, val.as_ref(), CelBind::Field(frame, &self.field))
         })?;
 
-        match (&self.kind, &value, self.field.kind()) {
+        match (kind, &val, self.field.kind()) {
             (
                 FieldKind::List { items: Some(items) },
                 Some(Val::List(list)),

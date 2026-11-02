@@ -1142,8 +1142,8 @@ mod tests {
     use crate::cel::{ScalarValue, This, Value};
     use crate::descriptors::{self, Descriptors};
     use crate::protobuf::testing::Untyped;
-    use crate::rules::ValidatorCache;
     use crate::rules::standard::Checks;
+    use crate::rules::{FieldValidator, ValidatorCache};
     use crate::validate::__buffa::oneof::field_rules::Type as RulesType;
     use crate::validate::{FIELD, FieldRules, PREDEFINED, PredefinedRules, Rule, StringRules};
     use crate::validator::cel_env;
@@ -1237,12 +1237,14 @@ mod tests {
             .as_ref()
             .expect("the message compiles");
         let field = validator.fields[0].as_ref().expect("the field compiles");
+        let FieldValidator::Value(_, value, _) = field else {
+            panic!("a field with a predefined rule is validated through its value");
+        };
         assert!(
-            matches!(&field.value.checks, Checks::None),
+            matches!(value.checks, Checks::None),
             "no native check covers test_len"
         );
-        let predefined = field
-            .value
+        let predefined = value
             .predefined
             .as_ref()
             .expect("test_len is checked by its predefined CEL");

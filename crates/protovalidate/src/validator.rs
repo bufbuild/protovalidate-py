@@ -1016,8 +1016,8 @@ mod tests {
     }
 
     #[test]
-    fn fields_are_planned_by_what_reads_them() {
-        use crate::rules::Plan;
+    fn fields_are_shaped_by_what_reads_them() {
+        use crate::rules::FieldValidator;
 
         let mut validator = Validator::<probe::Probe>::new();
         validator
@@ -1046,21 +1046,26 @@ mod tests {
                 .expect("the rules compile")
                 .clone()
         };
-        let plans = |type_name: &str| {
+        let shapes = |type_name: &str| {
             compiled(type_name)
                 .fields
                 .iter()
-                .map(|field| field.as_ref().expect("the field compiles").plan)
+                .map(|field| match field.as_ref().expect("the field compiles") {
+                    FieldValidator::Presence(_) => "presence",
+                    FieldValidator::Scalar(..) => "scalar",
+                    FieldValidator::Message(..) => "message",
+                    FieldValidator::Value(..) => "value",
+                })
                 .collect::<Vec<_>>()
         };
-        assert_eq!(plans("test.Inner"), [Plan::Scalar]);
-        assert_eq!(plans("test.Outer"), [Plan::Message]);
+        assert_eq!(shapes("test.Inner"), ["scalar"]);
+        assert_eq!(shapes("test.Outer"), ["message"]);
         assert_eq!(
-            plans("test.Holder"),
-            [Plan::Presence],
+            shapes("test.Holder"),
+            ["presence"],
             "a required field is checked"
         );
-        assert_eq!(plans("test.Nest"), [Plan::Generic, Plan::Generic]);
+        assert_eq!(shapes("test.Nest"), ["value", "value"]);
 
         let choice = compiled("test.Choice");
         assert!(

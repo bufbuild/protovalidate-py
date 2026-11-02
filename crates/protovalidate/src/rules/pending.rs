@@ -26,8 +26,8 @@ use std::collections::HashSet;
 use buffa_descriptor::MessageIndex;
 
 use super::{
-    CelPrograms, FieldKind, FieldValidator, ItemValidator, MessageOneof, MessageValidator, Nested,
-    OneofValidator, Plan, ValueValidator, nested_type, scalar_checks,
+    CelPrograms, FieldHeader, FieldKind, FieldValidator, ItemValidator, MessageOneof,
+    MessageValidator, Nested, OneofValidator, ValueValidator, nested_type, scalar_checks,
 };
 use crate::protobuf::{Field, Kind, Oneof, Runtime, Singular};
 use crate::validate::FieldPathElement;
@@ -91,36 +91,9 @@ impl<R: Runtime> PendingField<R> {
         !self.required && self.value_unused()
     }
 
-    /// How the field is validated.
-    fn plan(&self) -> Plan {
-        let value = &self.value;
-        match self.field.kind() {
-            _ if self.value_unused() => Plan::Presence,
-            Kind::Singular(singular)
-                if value.custom.is_none()
-                    && value.predefined.is_none()
-                    && value.wrapper.is_none()
-                    && value.wkt.is_none()
-                    && scalar_checks(&value.checks, singular) =>
-            {
-                Plan::Scalar
-            }
-            // An unset message is skipped, which is how an empty value is
-            // ignored for a field that tracks presence.
-            Kind::Singular(Singular::Message)
-                if !value.reads_value()
-                    && value.nested.is_some()
-                    && self.ignore_empty
-                    && self.field.has_presence() =>
-            {
-                Plan::Message
-            }
-            _ => Plan::Generic,
-        }
-    }
-
+    /// Shapes the field's validator by what validating the field needs.
     fn finalize(self) -> FieldValidator<R> {
-        let plan = self.plan();
+        let unused = self.value_unused();
         let Self {
             field,
             element,
@@ -129,14 +102,43 @@ impl<R: Runtime> PendingField<R> {
             value,
             kind,
         } = self;
-        FieldValidator {
+        let header = FieldHeader {
             field,
             element,
             required,
             ignore_empty,
-            value,
-            kind,
-            plan,
+        };
+        if unused {
+            return FieldValidator::Presence(header);
+        }
+        match (header.field.kind(), value) {
+            (
+                Kind::Singular(singular),
+                ValueValidator {
+                    custom: None,
+                    predefined: None,
+                    wrapper: None,
+                    wkt: None,
+                    nested: None,
+                    checks,
+                },
+            ) if scalar_checks(&checks, singular) => FieldValidator::Scalar(header, checks),
+            // An unset message is skipped, which is how an empty value is
+            // ignored for a field that tracks presence.
+            (
+                Kind::Singular(Singular::Message),
+                ValueValidator {
+                    custom: None,
+                    predefined: None,
+                    wrapper: None,
+                    wkt: None,
+                    nested: Some(nested),
+                    checks,
+                },
+            ) if checks.is_empty() && header.ignore_empty && header.field.has_presence() => {
+                FieldValidator::Message(header, nested)
+            }
+            (_, value) => FieldValidator::Value(header, Box::new(value), kind),
         }
     }
 }
