@@ -130,9 +130,9 @@ pub enum Val<'a, R: Runtime> {
 /// the method for the field's own kind, as given by [`Field::kind`]. If the
 /// field is not set, the result is the default value for its type, and an
 /// unset message, list or map is empty. If the message has no such field,
-/// as when the runtime has an older schema than the validator, the result
-/// is `None`. The returned value may borrow from `field`, for example to
-/// refer to the message type stored there.
+/// as when a registered file descriptor does not match the validated
+/// message, the result is `None`. The returned value may borrow from
+/// `field`, for example to refer to the message type stored there.
 ///
 /// Each method fails if the runtime could not read the field.
 pub trait Message<R: Runtime> {
