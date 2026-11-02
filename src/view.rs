@@ -24,7 +24,7 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use protovalidate::protobuf::{
-    Field, Key, Kind, List, Map, Message, Reader, Resolver, Runtime, Scalar, Singular, Val,
+    Field, Key, Kind, List, Map, Message, Oneof, Reader, Resolver, Runtime, Scalar, Singular, Val,
     ValueKind, ValueKindId,
 };
 use pyo3::Borrowed;
@@ -424,6 +424,38 @@ impl Message<PyRuntime> for MessageView<'_> {
             || Ok(self.value(object, slot, stored)?.is_some()),
             self.ctx.constants,
         )?)
+    }
+
+    fn which_oneof(&self, oneof: &Oneof<PyRuntime>) -> Result<Option<u32>, ReadError> {
+        // If the Python type has none of the members, none of them is set.
+        let Some((object, _, member)) = oneof.members().iter().find_map(|m| self.stored(m)) else {
+            return Ok(None);
+        };
+        let runtime = self.ctx.runtime;
+        let Some(set) = runtime.which_oneof(object, oneof.name(), member, self.ctx.constants)?
+        else {
+            return Ok(None);
+        };
+        let set = set.cast_into::<PyString>().map_err(PyErr::from)?;
+        let set = set.to_str()?;
+        if let Some(member) = oneof.members().iter().find(|m| m.name() == set) {
+            return Ok(Some(member.number()));
+        }
+        // The set member is one that the validator does not know of, so its
+        // number comes from the Python type.
+        let info = self.object.map(|(_, info)| info);
+        let number = info.and_then(|info| {
+            info.fields
+                .iter()
+                .find(|field| field.member_name().bind(self.ctx.py) == set)
+                .map(|field| field.number)
+        });
+        number.map(Some).ok_or_else(|| {
+            Box::new(PyValueError::new_err(format!(
+                "oneof {} has no member {set}",
+                oneof.name()
+            )))
+        })
     }
 
     fn get<'f, K: ValueKind<PyRuntime>>(

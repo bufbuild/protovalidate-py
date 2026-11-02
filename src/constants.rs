@@ -52,6 +52,8 @@ pub(crate) struct Constants {
     pub(crate) has_field: Py<PyString>,
     /// The string `SerializeToString`.
     pub(crate) serialize_to_string: Py<PyString>,
+    /// The string `WhichOneof`.
+    pub(crate) which_oneof: Py<PyString>,
     /// The string `add`.
     pub(crate) add: Py<PyString>,
     /// The string `dependencies`.
@@ -135,6 +137,7 @@ impl Constants {
             get_options: PyString::intern(py, "GetOptions").unbind(),
             has_field: PyString::intern(py, "HasField").unbind(),
             serialize_to_string: PyString::intern(py, "SerializeToString").unbind(),
+            which_oneof: PyString::intern(py, "WhichOneof").unbind(),
             add: PyString::intern(py, "add").unbind(),
             dependencies: PyString::intern(py, "dependencies").unbind(),
             desc: PyString::intern(py, "desc").unbind(),

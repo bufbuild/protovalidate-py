@@ -332,31 +332,14 @@ impl<R: Runtime> MessageValidator<R> {
     /// do nothing. Returns whether anything changed.
     pub(crate) fn prune(&mut self, empty: &HashSet<MessageIndex>) -> bool {
         let mut changed = false;
-        let mut prune = |value: &mut ValueValidator<R>| {
-            // CEL rules bind the nested message, so it must be kept.
-            if value.custom.is_none()
-                && value.predefined.is_none()
-                && value
-                    .nested
-                    .is_some_and(|nested| empty.contains(&nested.message))
-            {
-                value.nested = None;
-                changed = true;
-            }
-        };
         for field in self.fields.iter_mut().flatten() {
-            prune(&mut field.value);
+            changed |= prune_value(&mut field.value, empty);
             match &mut field.kind {
                 FieldKind::Singular => {}
-                FieldKind::List { items } => {
-                    if let Some(items) = items {
-                        prune(&mut items.value);
-                    }
-                }
+                FieldKind::List { items } => changed |= prune_items(items, empty),
                 FieldKind::Map { keys, values, .. } => {
-                    for items in [keys, values].into_iter().flatten() {
-                        prune(&mut items.value);
-                    }
+                    changed |= prune_items(keys, empty);
+                    changed |= prune_items(values, empty);
                 }
             }
         }
@@ -402,6 +385,40 @@ impl<R: Runtime> MessageValidator<R> {
             .map(position)
             .collect();
     }
+}
+
+/// Stops validating the nested message of `value` if its type is in
+/// `empty`. Returns whether anything changed.
+fn prune_value<R: Runtime>(value: &mut ValueValidator<R>, empty: &HashSet<MessageIndex>) -> bool {
+    // CEL rules bind the nested message, so it must be kept.
+    let prunable = value.custom.is_none()
+        && value.predefined.is_none()
+        && value
+            .nested
+            .is_some_and(|nested| empty.contains(&nested.message));
+    if prunable {
+        value.nested = None;
+    }
+    prunable
+}
+
+/// Prunes the items of a container as [`prune_value`] does. If no rules are
+/// left for the items, it removes their validator, so that the elements are
+/// not read. Returns whether anything changed.
+fn prune_items<R: Runtime>(
+    items: &mut Option<Box<ItemValidator<R>>>,
+    empty: &HashSet<MessageIndex>,
+) -> bool {
+    let Some(item) = items else {
+        return false;
+    };
+    if !prune_value(&mut item.value, empty) {
+        return false;
+    }
+    if item.value.is_empty() {
+        *items = None;
+    }
+    true
 }
 
 /// Converts a position in a message's fields to the form that compiled rules

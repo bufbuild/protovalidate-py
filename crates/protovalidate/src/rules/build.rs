@@ -331,7 +331,7 @@ fn entry_element(field: &FieldDescriptor) -> FieldPathElement {
 
 /// The message type of a field's values, whether the field holds them
 /// directly or in its items.
-fn nested_type<R: Runtime>(field: &FieldValidator<R>) -> Option<Nested> {
+pub(crate) fn nested_type<R: Runtime>(field: &FieldValidator<R>) -> Option<Nested> {
     let items = match &field.kind {
         FieldKind::List { items } => items.as_deref(),
         FieldKind::Map { values, .. } => values.as_deref(),

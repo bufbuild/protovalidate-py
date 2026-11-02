@@ -464,27 +464,43 @@ impl<R: Runtime> FieldValidator<R> {
                 |value| *value,
                 |out, value| run(checks, value, out),
             ),
-            (Checks::Int(checks), Singular::Scalar(_)) => self.scalar(
+            (
+                Checks::Int(checks),
+                Singular::Scalar(
+                    Scalar::Int32
+                    | Scalar::Int64
+                    | Scalar::Sint32
+                    | Scalar::Sint64
+                    | Scalar::Sfixed32
+                    | Scalar::Sfixed64,
+                ),
+            ) => self.scalar(
                 walk,
                 present,
                 || message.get::<kind::Int>(field),
                 |value| *value != 0,
                 |out, value| run(checks, value, out),
             ),
-            (Checks::Uint(checks), Singular::Scalar(_)) => self.scalar(
+            (
+                Checks::Uint(checks),
+                Singular::Scalar(
+                    Scalar::Uint32 | Scalar::Uint64 | Scalar::Fixed32 | Scalar::Fixed64,
+                ),
+            ) => self.scalar(
                 walk,
                 present,
                 || message.get::<kind::Uint>(field),
                 |value| *value != 0,
                 |out, value| run(checks, value, out),
             ),
-            (Checks::Double(checks), Singular::Scalar(_)) => self.scalar(
-                walk,
-                present,
-                || message.get::<kind::Double>(field),
-                |value| value.to_bits() != 0,
-                |out, value| run(checks, value, out),
-            ),
+            (Checks::Double(checks), Singular::Scalar(Scalar::Float | Scalar::Double)) => self
+                .scalar(
+                    walk,
+                    present,
+                    || message.get::<kind::Double>(field),
+                    |value| value.to_bits() != 0,
+                    |out, value| run(checks, value, out),
+                ),
             (Checks::String(checks), Singular::Scalar(Scalar::String)) => self.scalar(
                 walk,
                 present,
@@ -766,26 +782,42 @@ fn validate_entry<'a, 'k, R: Runtime>(
     key: Key<'k, R>,
     value: &Val<'k, R>,
 ) -> Result<(), Abort<R::Error>> {
+    // The key is read at most once, when key rules or a violation's path
+    // first need it.
+    let read = OnceCell::new();
     walk.at_item(
         entries.element,
-        // The key is only read to describe a violation.
-        || Ok(key_subscript(&key().read()?)),
-        |walk| validate_entry_values(walk, entries, key, value),
+        || Ok(key_subscript(entry_key(&read, key)?)),
+        |walk| validate_entry_values(walk, entries, &read, key, value),
     )
+}
+
+/// Returns the entry's key from `read`, reading it with `key` first if it
+/// has not been read yet.
+fn entry_key<'r, 'k, R: Runtime>(
+    read: &'r OnceCell<Val<'k, R>>,
+    key: Key<'k, R>,
+) -> Result<&'r Val<'k, R>, Abort<R::Error>> {
+    if let Some(value) = read.get() {
+        return Ok(value);
+    }
+    let value = key().read()?;
+    Ok(read.get_or_init(|| value))
 }
 
 fn validate_entry_values<'k, R: Runtime>(
     walk: &mut Walk<'_, R>,
     entries: &Entries<'_, R>,
+    read: &OnceCell<Val<'k, R>>,
     key: Key<'k, R>,
     value: &Val<'k, R>,
 ) -> Result<(), Abort<R::Error>> {
     if let Some(keys) = entries.keys {
-        let key = key().read()?;
-        if !(keys.ignore_empty && is_empty_item::<R>(&key)?) {
+        let key = entry_key(read, key)?;
+        if !(keys.ignore_empty && is_empty_item::<R>(key)?) {
             walk.for_key(|walk| {
                 keys.value
-                    .validate(walk, Some(&key), CelBind::Item(entries.key))
+                    .validate(walk, Some(key), CelBind::Item(entries.key))
             })?;
         }
     }

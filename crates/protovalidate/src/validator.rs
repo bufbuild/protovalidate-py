@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashSet;
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use buffa::Message as _;
 use buffa_descriptor::MessageIndex;
@@ -43,10 +45,17 @@ pub(crate) fn cel_env(set: &FileDescriptorSet) -> cel::Env {
 }
 
 /// A message type whose rules a [`Validator`] has compiled, as returned by
-/// [`Validator::compiled_type`]. It is only meaningful to the validator that
-/// returned it.
+/// [`Validator::compiled_type`]. Only the validator that returned it can
+/// validate with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct CompiledType(ValidatorIndex);
+pub struct CompiledType {
+    /// The [`Validator::id`] of the validator that returned it.
+    validator: u64,
+    index: ValidatorIndex,
+}
+
+/// The [`Validator::id`] of the next validator created.
+static NEXT_VALIDATOR_ID: AtomicU64 = AtomicU64::new(0);
 
 /// Validates Protobuf messages against the rules in their descriptors,
 /// reading them through the runtime `R`.
@@ -54,7 +63,13 @@ pub struct CompiledType(ValidatorIndex);
 /// Register your descriptors and compile the rules of the message types you
 /// will validate before validating messages.
 pub struct Validator<R: Runtime> {
+    /// Identifies this validator among all validators in the process, so
+    /// that a [`CompiledType`] from another one is rejected.
+    id: u64,
     descriptors: Descriptors,
+    /// The number of message types in the embedded `buf.validate` schema,
+    /// which come first in the pool.
+    base_messages: usize,
     env: cel::Env,
     validators: ValidatorCache<R>,
 }
@@ -79,8 +94,11 @@ impl<R: Runtime> Validator<R> {
     pub fn new() -> Self {
         let base = descriptors::base_file_set();
         let env = cel_env(&base);
+        let descriptors = Descriptors::from_set(base);
         Self {
-            descriptors: Descriptors::from_set(base),
+            id: NEXT_VALIDATOR_ID.fetch_add(1, Ordering::Relaxed),
+            base_messages: descriptors.pool.messages().len(),
+            descriptors,
             env,
             validators: ValidatorCache::default(),
         }
@@ -126,7 +144,7 @@ impl<R: Runtime> Validator<R> {
     ///
     /// [`Error::Argument`] if the type is not registered, [`Error::Read`] if
     /// the resolver does not know a type, or [`Error::Compilation`] if the
-    /// rules do not compile.
+    /// rules of the type or of a type reachable from it do not compile.
     pub fn compile(
         &mut self,
         type_name: &str,
@@ -134,13 +152,15 @@ impl<R: Runtime> Validator<R> {
     ) -> Result<(), Error<R::Error>> {
         let index = self.message_index(type_name)?;
         self.compile_index(index, resolver).map_err(Error::Read)?;
-        match self.compile_error(index) {
+        match self.reachable_compile_error(index) {
             Some(error) => Err(Error::Compilation(error)),
             None => Ok(()),
         }
     }
 
-    /// Compiles the rules of every registered message type.
+    /// Compiles the rules of every registered message type. The types of the
+    /// embedded `buf.validate` schema and its imports are not compiled, even
+    /// if their files were registered again.
     ///
     /// # Errors
     ///
@@ -148,10 +168,22 @@ impl<R: Runtime> Validator<R> {
     /// [`Error::Compilation`], naming the types whose rules do not compile.
     /// All other types are still compiled.
     pub fn compile_all(&mut self, resolver: &dyn Resolver<R>) -> Result<(), Error<R::Error>> {
+        self.compile_messages(self.base_messages, resolver)
+    }
+
+    /// Compiles the rules of every message type from position `first` in the
+    /// pool, as [`compile_all`](Self::compile_all) does from the first type
+    /// after the embedded schema.
+    pub(crate) fn compile_messages(
+        &mut self,
+        first: usize,
+        resolver: &dyn Resolver<R>,
+    ) -> Result<(), Error<R::Error>> {
         let pool = &self.descriptors.pool;
         let pending: Vec<MessageIndex> = pool
             .messages()
             .iter()
+            .skip(first)
             // A map's entry type is only ever read through its map.
             .filter(|message| {
                 message
@@ -227,7 +259,11 @@ impl<R: Runtime> Validator<R> {
     #[must_use]
     pub fn compiled_type(&self, type_name: &str) -> Option<CompiledType> {
         let message = self.descriptors.pool.message_index(type_name)?;
-        self.validators.index(message).map(CompiledType)
+        let index = self.validators.index(message)?;
+        Some(CompiledType {
+            validator: self.id,
+            index,
+        })
     }
 
     /// Validates a message of a type that
@@ -236,14 +272,20 @@ impl<R: Runtime> Validator<R> {
     ///
     /// # Errors
     ///
-    /// The same as [`validate_message`](Self::validate_message).
+    /// The same as [`validate_message`](Self::validate_message), and
+    /// [`Error::Argument`] if another validator returned `compiled`.
     pub fn validate_compiled(
         &self,
         compiled: CompiledType,
         reader: &dyn Reader<R>,
         fail_fast: bool,
     ) -> Result<(), Error<R::Error>> {
-        self.validate_index(compiled.0, reader, fail_fast)
+        if compiled.validator != self.id {
+            return Err(Error::Argument(
+                "the compiled type is from another validator".to_owned(),
+            ));
+        }
+        self.validate_index(compiled.index, reader, fail_fast)
     }
 
     fn validate_index(
@@ -303,6 +345,45 @@ impl<R: Runtime> Validator<R> {
                 .iter()
                 .find_map(|field| field.as_ref().err().cloned()),
         }
+    }
+
+    /// Returns why the rules of `root`, or of a type that validating it can
+    /// reach, do not compile. An error in another type names that type.
+    fn reachable_compile_error(&self, root: MessageIndex) -> Option<String> {
+        let mut pending = vec![self.validators.index(root)?];
+        let mut seen = HashSet::new();
+        while let Some(index) = pending.pop() {
+            if !seen.insert(index) {
+                continue;
+            }
+            let (message, built) = self.validators.validator(index);
+            let error = match built {
+                Err(error) => Some(error),
+                Ok(validator) => {
+                    let mut error = None;
+                    for field in &validator.fields {
+                        match field {
+                            Err(field_error) => {
+                                error = Some(field_error);
+                                break;
+                            }
+                            Ok(field) => {
+                                pending.extend(build::nested_type(field).map(|n| n.validator));
+                            }
+                        }
+                    }
+                    error
+                }
+            };
+            if let Some(error) = error {
+                if message == root {
+                    return Some(error.clone());
+                }
+                let name = self.descriptors.pool.message(message).full_name();
+                return Some(format!("{name}: {error}"));
+            }
+        }
+        None
     }
 
     /// Compiles the rules of `root` and of every type reachable from it
@@ -366,10 +447,17 @@ mod tests {
             .validate_compiled(compiled, &Untyped, false)
             .expect("a message without rules is valid");
         assert!(validator.compiled_type("unknown.Type").is_none());
+
+        let other = Validator::<Untyped>::new();
+        let error = other
+            .validate_compiled(compiled, &Untyped, false)
+            .expect_err("another validator returned the compiled type");
+        assert!(matches!(error, crate::Error::Argument(_)), "{error}");
     }
 
     /// A file with one message whose rules compile and one whose rules do
-    /// not.
+    /// not. `test.Middle` has a field of type `test.Bad`, and `test.Top` has
+    /// a field of type `test.Middle`.
     fn mixed_schema() -> Vec<u8> {
         use buffa::{ExtensionSet as _, Message as _};
         use buffa_descriptor::generated::descriptor::field_descriptor_proto::{Label, Type};
@@ -427,6 +515,16 @@ mod tests {
                         options: Some(message_options).into(),
                         ..Default::default()
                     },
+                    DescriptorProto {
+                        name: Some("Middle".to_owned()),
+                        field: vec![message_field("bad", 1, ".test.Bad")],
+                        ..Default::default()
+                    },
+                    DescriptorProto {
+                        name: Some("Top".to_owned()),
+                        field: vec![message_field("middle", 1, ".test.Middle")],
+                        ..Default::default()
+                    },
                 ],
                 syntax: Some("proto3".to_owned()),
                 ..Default::default()
@@ -456,6 +554,38 @@ mod tests {
         assert!(matches!(error, crate::Error::Compilation(_)), "{error}");
     }
 
+    #[test]
+    fn compile_reports_rules_that_do_not_compile_deeper_down() {
+        let mut validator = Validator::<Untyped>::new();
+        validator
+            .add_file_descriptor_set_bytes(&mixed_schema())
+            .expect("the schema registers");
+        let error = validator
+            .compile("test.Top", &Untyped)
+            .expect_err("Bad's rule does not compile");
+        assert!(matches!(error, crate::Error::Compilation(_)), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains("test.Middle: failed to compile embedded type test.Bad"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn compile_all_skips_the_embedded_schema() {
+        let mut validator = Validator::<Untyped>::new();
+        validator
+            .add_file_descriptor_set_bytes(&read_schema())
+            .expect("the schema registers");
+        validator.compile_all(&Untyped).expect("the rules compile");
+        assert!(validator.is_compiled("test.Outer"));
+        assert!(
+            !validator.is_compiled("buf.validate.FieldRules"),
+            "the embedded schema is not compiled"
+        );
+    }
+
     /// Messages for checking which fields validation reads:
     ///
     /// - `test.Outer` has a message field `inner` of `test.Inner`, which has
@@ -465,8 +595,12 @@ mod tests {
     /// - `test.Choice` has a required oneof of two `test.Inner` fields.
     /// - `test.Nest` has a repeated `test.Inner` field `items` and a
     ///   `map<string, test.Inner>` field `named`.
+    /// - `test.Keyed` is the same as `test.Nest`, except that the keys of
+    ///   `named` must not be empty.
     /// - `test.Idle` has a oneof of two `test.Empty` fields.
     /// - `test.Needs` has a required message field `inner` of `test.Inner`.
+    /// - `test.Bag` has a repeated `test.Empty` field `empties`.
+    /// - `test.Bagged` has a message field `bag` of `test.Bag`.
     fn read_schema() -> Vec<u8> {
         use buffa::{ExtensionSet as _, Message as _};
         use buffa_descriptor::generated::descriptor::field_descriptor_proto::{Label, Type};
@@ -532,7 +666,8 @@ mod tests {
                         name: Some("Empty".to_owned()),
                         ..Default::default()
                     },
-                    nest_message(),
+                    nest_message("Nest", false),
+                    nest_message("Keyed", true),
                     DescriptorProto {
                         name: Some("Choice".to_owned()),
                         oneof_decl: vec![OneofDescriptorProto {
@@ -555,13 +690,38 @@ mod tests {
                         }],
                         ..Default::default()
                     },
-                ],
+                ]
+                .into_iter()
+                .chain(bag_messages())
+                .collect(),
                 syntax: Some("proto3".to_owned()),
                 ..Default::default()
             }],
             ..Default::default()
         }
         .encode_to_vec()
+    }
+
+    /// `test.Bag` and `test.Bagged`, from [`read_schema`].
+    fn bag_messages() -> [buffa_descriptor::generated::descriptor::DescriptorProto; 2] {
+        use buffa_descriptor::generated::descriptor::field_descriptor_proto::Label;
+        use buffa_descriptor::generated::descriptor::{DescriptorProto, FieldDescriptorProto};
+
+        [
+            DescriptorProto {
+                name: Some("Bag".to_owned()),
+                field: vec![FieldDescriptorProto {
+                    label: Some(Label::LABEL_REPEATED),
+                    ..message_field("empties", 1, ".test.Empty")
+                }],
+                ..Default::default()
+            },
+            DescriptorProto {
+                name: Some("Bagged".to_owned()),
+                field: vec![message_field("bag", 1, ".test.Bag")],
+                ..Default::default()
+            },
+        ]
     }
 
     /// A message with a oneof `kind` of two fields, `a` and `b`, of type
@@ -612,19 +772,31 @@ mod tests {
         }
     }
 
-    /// `test.Nest`, from [`read_schema`]. Its map `named` has map rules that
-    /// only contain rules for its values, so they read nothing themselves.
-    fn nest_message() -> buffa_descriptor::generated::descriptor::DescriptorProto {
+    /// `test.Nest` or `test.Keyed`, from [`read_schema`]. The map `named` has
+    /// map rules with rules for its values. With `key_rules`, they also
+    /// require non-empty keys. Otherwise, they read nothing themselves.
+    fn nest_message(
+        name: &str,
+        key_rules: bool,
+    ) -> buffa_descriptor::generated::descriptor::DescriptorProto {
         use buffa_descriptor::generated::descriptor::field_descriptor_proto::{Label, Type};
         use buffa_descriptor::generated::descriptor::{
             DescriptorProto, FieldDescriptorProto, MessageOptions,
         };
 
         use crate::validate::__buffa::oneof::field_rules::Type as RulesType;
-        use crate::validate::{FieldRules, MapRules};
+        use crate::validate::{FieldRules, MapRules, StringRules};
 
-        let values_only = field_options(FieldRules {
+        let keys = key_rules.then(|| FieldRules {
+            r#type: Some(RulesType::String(Box::new(StringRules {
+                min_len: Some(1),
+                ..Default::default()
+            }))),
+            ..Default::default()
+        });
+        let map_rules = field_options(FieldRules {
             r#type: Some(RulesType::Map(Box::new(MapRules {
+                keys: keys.into(),
                 values: Some(FieldRules::default()).into(),
                 ..Default::default()
             }))),
@@ -632,7 +804,7 @@ mod tests {
         });
 
         DescriptorProto {
-            name: Some("Nest".to_owned()),
+            name: Some(name.to_owned()),
             field: vec![
                 FieldDescriptorProto {
                     label: Some(Label::LABEL_REPEATED),
@@ -640,8 +812,8 @@ mod tests {
                 },
                 FieldDescriptorProto {
                     label: Some(Label::LABEL_REPEATED),
-                    options: Some(values_only).into(),
-                    ..message_field("named", 2, ".test.Nest.NamedEntry")
+                    options: Some(map_rules).into(),
+                    ..message_field("named", 2, &format!(".test.{name}.NamedEntry"))
                 },
             ],
             nested_type: vec![DescriptorProto {
@@ -866,6 +1038,7 @@ mod tests {
             "test.Nest",
             "test.Choice",
             "test.Idle",
+            "test.Bagged",
         ] {
             validator
                 .compile(type_name, &probe)
@@ -914,6 +1087,16 @@ mod tests {
             idle.plain.is_empty(),
             "members without rules are not validated"
         );
+        for type_name in ["test.Bag", "test.Bagged"] {
+            assert!(
+                compiled(type_name).is_empty(),
+                "{type_name} only holds messages without rules"
+            );
+            assert!(
+                compiled(type_name).plain.is_empty(),
+                "{type_name} validates nothing"
+            );
+        }
     }
 
     /// A runtime for `test.Nest` whose map `named` has one entry, `"k"`,
@@ -1046,14 +1229,19 @@ mod tests {
 
     /// Validates `test.Nest` through `keys`.
     fn validate_keys(keys: &keys::Keys) -> Result<(), crate::Error<String>> {
+        validate_keys_of("test.Nest", keys)
+    }
+
+    /// Validates a message of type `type_name` through `keys`.
+    fn validate_keys_of(type_name: &str, keys: &keys::Keys) -> Result<(), crate::Error<String>> {
         let mut validator = Validator::<keys::Keys>::new();
         validator
             .add_file_descriptor_set_bytes(&read_schema())
             .expect("the schema registers");
         validator
-            .compile("test.Nest", keys)
+            .compile(type_name, keys)
             .expect("the rules compile");
-        validator.validate_message("test.Nest", keys, false)
+        validator.validate_message(type_name, keys, false)
     }
 
     #[test]
@@ -1069,6 +1257,22 @@ mod tests {
         };
         assert_eq!(error.violations()[0].field_path(), "named[\"k\"].s");
         assert_eq!(invalid.reads.get(), 1, "the key is read for the subscript");
+    }
+
+    #[test]
+    fn map_key_with_rules_is_read_once() {
+        let invalid = keys::Keys::new(false, false);
+        let error =
+            validate_keys_of("test.Keyed", &invalid).expect_err("the map's value is invalid");
+        let crate::Error::Validation(error) = error else {
+            panic!("{error}");
+        };
+        assert_eq!(error.violations()[0].field_path(), "named[\"k\"].s");
+        assert_eq!(
+            invalid.reads.get(),
+            1,
+            "the key read for its rules is reused for the subscript"
+        );
     }
 
     #[test]

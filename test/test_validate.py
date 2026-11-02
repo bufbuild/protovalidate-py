@@ -84,6 +84,22 @@ def test_oneofs(validator: ValidatorProtocol) -> None:
     check_valid(validator, msg)
 
 
+def test_unset_oneof_is_read_once() -> None:
+    # protobuf-py stores the oneof in one attribute, so finding out that no
+    # member is set takes one read of it, not one per member.
+    reads = 0
+
+    class CountingOneof(validations_pb.Oneof):
+        def __getattribute__(self, name: str) -> object:
+            nonlocal reads
+            if name == "o":
+                reads += 1
+            return super().__getattribute__(name)
+
+    make_validator().validate(CountingOneof())
+    assert reads == 1
+
+
 @pytest.mark.parametrize("validator", validators)
 def test_protovalidate_oneof_valid(validator: ValidatorProtocol) -> None:
     msg = validations_pb.ProtovalidateOneof()
