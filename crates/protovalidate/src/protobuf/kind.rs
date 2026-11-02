@@ -77,7 +77,7 @@ pub trait ValueKind<R: Runtime> {
         None
     }
 
-    /// Returns `Some(value)` if this is the `float` and `double` kind, and `None` otherwise.
+    /// Returns `Some(value)` if this is the floating-point kind, and `None` otherwise.
     #[must_use]
     fn from_double<'a>(value: f64) -> Option<Self::Value<'a>> {
         let _ = value;

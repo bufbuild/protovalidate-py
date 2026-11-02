@@ -62,7 +62,7 @@ impl Violation {
 
     /// The path to the field that failed, such as `user.emails[0]`.
     ///
-    /// Empty for a message-level rule, which does not apply to a field.
+    /// It is empty for a message-level rule, which does not apply to a field.
     #[must_use]
     pub fn field_path(&self) -> &str {
         self.field_path
@@ -124,7 +124,8 @@ fn path_string(path: Option<&FieldPath>) -> String {
             Some(Subscript::BoolKey(key)) => {
                 let _ = write!(rendered, "[{key}]");
             }
-            // Quoted so that a key containing `.` or `]` is unambiguous.
+            // The key is quoted so that a key containing `.` or `]` is
+            // unambiguous.
             Some(Subscript::StringKey(key)) => {
                 rendered.push_str("[\"");
                 for c in key.chars() {

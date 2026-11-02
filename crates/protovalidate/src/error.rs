@@ -45,7 +45,7 @@ impl std::error::Error for DescriptorError {}
 /// [`Validation`](Self::Validation) means that the message failed
 /// validation, and carries the violations. Every other variant means that
 /// validation could not complete. `E` is the error that the runtime returns
-/// when it cannot read the message; see
+/// when it cannot read the message. See
 /// [`Runtime::Error`](crate::protobuf::Runtime::Error).
 #[derive(Debug)]
 #[non_exhaustive]

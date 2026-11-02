@@ -37,10 +37,10 @@
 //! match validator.validate_message(type_name, &reader, false) {
 //!     Ok(()) => { /* valid */ }
 //!     Err(Error::Validation(e)) => {
-//!         // The message failed validation; see e.violations().
+//!         // The message failed validation, and e.violations() lists why.
 //!         eprintln!("{e}");
 //!     }
-//!     // Validation could not complete: the type is unknown, its rules do
+//!     // Validation could not complete. The type is unknown, its rules do
 //!     // not compile or evaluate, or the message could not be read.
 //!     Err(e) => return Err(e.into()),
 //! }

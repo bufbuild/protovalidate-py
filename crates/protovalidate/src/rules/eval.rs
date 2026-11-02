@@ -221,9 +221,9 @@ impl<'a, R: Runtime> Walk<'a, R> {
         self.at_item(element, || Ok(element.subscript.clone()), f)
     }
 
-    /// Like [`at`](Self::at), but within one item of a container field. The
-    /// item's subscript is only computed, by `subscript`, if `f` records a
-    /// violation.
+    /// Runs `f` within one item of a container field, as [`at`](Self::at)
+    /// does within a field. The item's subscript is only computed, by
+    /// `subscript`, if `f` records a violation.
     fn at_item<T>(
         &mut self,
         element: &'a FieldPathElement,
@@ -442,8 +442,9 @@ impl<R: Runtime> OneofValidator<R> {
 impl<R: Runtime> FieldValidator<R> {
     /// Validates a [`Plan::Scalar`] field, reading its value with
     /// [`Message::get`](crate::protobuf::Message::get) rather than as a
-    /// [`Val`]. Returns `None` if the field's checks do not match its kind;
-    /// the generic path then reports the mismatch.
+    /// [`Val`]. Returns `None` if the field's checks do not match its kind.
+    /// The caller then reads the field as a [`Val`], and reports the
+    /// mismatch.
     fn validate_scalar<'a>(
         &'a self,
         walk: &mut Walk<'a, R>,
@@ -521,9 +522,9 @@ impl<R: Runtime> FieldValidator<R> {
         })
     }
 
-    /// The presence handling and checks of [`Self::validate_scalar`] for a
-    /// value of type `T`. The value is only read, by `get`, if it is
-    /// needed.
+    /// Applies the presence handling and checks of
+    /// [`Self::validate_scalar`] to a value of type `T`. It only calls `get`
+    /// to read the value if the value is needed.
     fn scalar<'a, T: Default>(
         &'a self,
         walk: &mut Walk<'a, R>,
@@ -549,8 +550,8 @@ impl<R: Runtime> FieldValidator<R> {
                 return Ok(());
             }
         }
-        // A field that the runtime's message does not have reads as its
-        // default value, as on the generic path.
+        // If the runtime's message does not have the field, its default
+        // value is checked, as when the field is read as a `Val`.
         let value = got.unwrap_or_default();
         walk.at(&self.element, |walk| check(&mut walk.out, &value))
     }

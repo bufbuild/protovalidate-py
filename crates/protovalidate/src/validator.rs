@@ -218,10 +218,10 @@ impl<R: Runtime> Validator<R> {
         self.validate_index(index, reader, fail_fast)
     }
 
-    /// The compiled type for `type_name`, which
+    /// Returns the compiled type for `type_name`, which
     /// [`validate_compiled`](Self::validate_compiled) uses to validate
-    /// without looking up the name each time. `None` if its rules are not
-    /// compiled. As with [`is_compiled`](Self::is_compiled), rules that
+    /// without looking up the name each time. Returns `None` if its rules
+    /// are not compiled. As with [`is_compiled`](Self::is_compiled), rules that
     /// failed to compile count as compiled, and validation reports the
     /// error.
     #[must_use]
