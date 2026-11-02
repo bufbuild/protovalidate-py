@@ -291,8 +291,7 @@ pub trait Map<R: Runtime> {
 pub type Key<'k, R> = &'k dyn Fn() -> Result<Val<'k, R>, <R as Runtime>::Error>;
 
 /// Reads a field of any kind as a [`Val`], by calling the [`Message`]
-/// method for the field's kind. The validator uses this on the code paths
-/// that handle every kind of field.
+/// method for the field's kind.
 pub(crate) fn read<'f, R: Runtime>(
     message: &'f R::Message<'_>,
     field: &'f Field<R>,

@@ -16,9 +16,9 @@
 //!
 //! A [`Walk`] is one validation. The validators drive it, each reading its
 //! part of the message through the runtime. A violation records the field
-//! path the walk is at and the rule path compiled into the check. Anything
-//! that ends the walk early, a read failing or the first violation when
-//! failing fast, propagates as an [`Abort`] through `?`.
+//! path the walk is at and the rule path compiled into the check. A read
+//! that fails ends the walk early, as does the first violation when failing
+//! fast. Either one propagates as an [`Abort`] through `?`.
 
 use std::cell::OnceCell;
 use std::ops::ControlFlow;
@@ -893,8 +893,8 @@ impl<R: Runtime> ValueValidator<R> {
     }
 }
 
-/// What `this` is bound to: a scalar value directly, and a message, list
-/// or map through the parsed frame it lives in.
+/// What `this` is bound to. A scalar value is bound directly, and a
+/// message, list or map is bound through the parsed frame it lives in.
 fn cel_this<'v, R: Runtime>(
     value: Option<&'v Val<'_, R>>,
     bind: CelBind<'v, '_, '_, R>,
@@ -982,7 +982,8 @@ fn key_subscript<R: Runtime>(key: &Val<'_, R>) -> Option<Subscript> {
 }
 
 /// The CEL scalar for a value of `kind`, or the type's zero when the
-/// message does not have the field. `None` when the kind is a message.
+/// message does not have the field. Returns `None` when the kind is a
+/// message.
 fn cel_scalar<'v, R: Runtime>(
     value: Option<&'v Val<'_, R>>,
     kind: Singular,

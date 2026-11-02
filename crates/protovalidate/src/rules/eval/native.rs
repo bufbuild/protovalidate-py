@@ -263,7 +263,7 @@ fn bytes_of<'v, R: Runtime>(value: Option<&'v Val<'_, R>>) -> Result<&'v [u8], A
 }
 
 /// The `seconds` and `nanos` of a `Duration` or `Timestamp` message
-/// combined into nanoseconds. Zero for a missing message.
+/// combined into nanoseconds. A missing message is zero.
 fn nanos_of<R: Runtime>(
     value: Option<&Val<'_, R>>,
     seconds: &Field<R>,
