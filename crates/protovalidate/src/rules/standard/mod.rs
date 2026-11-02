@@ -66,13 +66,8 @@ pub(crate) enum Checks {
     /// No rules message is set.
     #[default]
     None,
-    Bool(Vec<Check<bool>>),
-    Int(Vec<Check<Cmp<i64>>>),
-    Uint(Vec<Check<Cmp<u64>>>),
-    Double(Vec<Check<DoubleTest>>),
-    String(Vec<Check<StrTest>>),
-    Bytes(Vec<Check<BytesTest>>),
-    Enum(Vec<Check<EnumTest>>),
+    /// The checks of a scalar or enum value.
+    Scalar(ScalarChecks),
     List(Vec<Check<ListTest>>),
     Map(Vec<Check<MapTest>>),
     Duration(Vec<Check<Cmp<Duration>>>),
@@ -81,12 +76,22 @@ pub(crate) enum Checks {
     Any(Vec<Check<AnyTest>>),
 }
 
-impl Checks {
-    /// Whether there is nothing to check, as when a rules message is set but
-    /// contains no rules that are checked natively.
+/// The checks of a scalar or enum value, which also apply to the value
+/// that a wrapper message holds.
+pub(crate) enum ScalarChecks {
+    Bool(Vec<Check<bool>>),
+    Int(Vec<Check<Cmp<i64>>>),
+    Uint(Vec<Check<Cmp<u64>>>),
+    Double(Vec<Check<DoubleTest>>),
+    String(Vec<Check<StrTest>>),
+    Bytes(Vec<Check<BytesTest>>),
+    Enum(Vec<Check<EnumTest>>),
+}
+
+impl ScalarChecks {
+    /// Whether there is nothing to check.
     pub(crate) fn is_empty(&self) -> bool {
         match self {
-            Self::None => true,
             Self::Bool(checks) => checks.is_empty(),
             Self::Int(checks) => checks.is_empty(),
             Self::Uint(checks) => checks.is_empty(),
@@ -94,6 +99,17 @@ impl Checks {
             Self::String(checks) => checks.is_empty(),
             Self::Bytes(checks) => checks.is_empty(),
             Self::Enum(checks) => checks.is_empty(),
+        }
+    }
+}
+
+impl Checks {
+    /// Whether there is nothing to check, as when a rules message is set but
+    /// contains no rules that are checked natively.
+    pub(crate) fn is_empty(&self) -> bool {
+        match self {
+            Self::None => true,
+            Self::Scalar(checks) => checks.is_empty(),
             Self::List(checks) => checks.is_empty(),
             Self::Map(checks) => checks.is_empty(),
             Self::Duration(checks) => checks.is_empty(),

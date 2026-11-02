@@ -23,11 +23,10 @@
 
 use std::collections::HashSet;
 
-use buffa_descriptor::MessageIndex;
-
 use super::{
     CelPrograms, FieldHeader, FieldKind, FieldValidator, ItemValidator, MessageOneof,
-    MessageValidator, Nested, OneofValidator, ValueValidator, nested_type, scalar_checks,
+    MessageValidator, NativeChecks, OneofValidator, ValidatorIndex, ValueValidator, nested_type,
+    scalar_checks,
 };
 use crate::protobuf::{Field, Kind, Oneof, Runtime, Singular};
 use crate::validate::FieldPathElement;
@@ -70,8 +69,9 @@ pub(crate) struct PendingField<R: Runtime> {
 }
 
 impl<R: Runtime> PendingField<R> {
-    /// The message type of the field's values, if they are messages.
-    pub(crate) fn nested_type(&self) -> Option<Nested> {
+    /// The index of the validator of the message type of the field's
+    /// values, if they are messages.
+    pub(crate) fn nested_type(&self) -> Option<ValidatorIndex> {
         nested_type(&self.value, &self.kind)
     }
 
@@ -117,10 +117,8 @@ impl<R: Runtime> PendingField<R> {
                 ValueValidator {
                     custom: None,
                     predefined: None,
-                    wrapper: None,
-                    wkt: None,
                     nested: None,
-                    checks,
+                    native: NativeChecks::Scalar(checks),
                 },
             ) if scalar_checks(&checks, singular) => FieldValidator::Scalar(header, checks),
             // An unset message is skipped, which is how an empty value is
@@ -130,12 +128,10 @@ impl<R: Runtime> PendingField<R> {
                 ValueValidator {
                     custom: None,
                     predefined: None,
-                    wrapper: None,
-                    wkt: None,
                     nested: Some(nested),
-                    checks,
+                    native: NativeChecks::None,
                 },
-            ) if checks.is_empty() && header.ignore_empty && header.field.has_presence() => {
+            ) if header.ignore_empty && header.field.has_presence() => {
                 FieldValidator::Message(header, nested)
             }
             (_, value) => FieldValidator::Value(header, Box::new(value), kind),
@@ -155,9 +151,9 @@ impl<R: Runtime> PendingValidator<R> {
                 .all(|field| field.as_ref().is_ok_and(PendingField::does_nothing))
     }
 
-    /// Stops validating nested messages of the types in `empty`, whose rules
-    /// do nothing. Returns whether anything changed.
-    pub(crate) fn prune(&mut self, empty: &HashSet<MessageIndex>) -> bool {
+    /// Stops validating nested messages through the validators in `empty`,
+    /// whose rules do nothing. Returns whether anything changed.
+    pub(crate) fn prune(&mut self, empty: &HashSet<ValidatorIndex>) -> bool {
         let mut changed = false;
         for field in self.fields.iter_mut().flatten() {
             changed |= prune_value(&mut field.value, empty);
@@ -227,15 +223,13 @@ impl<R: Runtime> PendingValidator<R> {
     }
 }
 
-/// Stops validating the nested message of `value` if its type is in
+/// Stops validating the nested message of `value` if its validator is in
 /// `empty`. Returns whether anything changed.
-fn prune_value<R: Runtime>(value: &mut ValueValidator<R>, empty: &HashSet<MessageIndex>) -> bool {
+fn prune_value<R: Runtime>(value: &mut ValueValidator<R>, empty: &HashSet<ValidatorIndex>) -> bool {
     // CEL rules bind the nested message, so it must be kept.
     let prunable = value.custom.is_none()
         && value.predefined.is_none()
-        && value
-            .nested
-            .is_some_and(|nested| empty.contains(&nested.message));
+        && value.nested.is_some_and(|nested| empty.contains(&nested));
     if prunable {
         value.nested = None;
     }
@@ -247,16 +241,15 @@ fn prune_value<R: Runtime>(value: &mut ValueValidator<R>, empty: &HashSet<Messag
 /// not read. Returns whether anything changed.
 fn prune_items<R: Runtime>(
     items: &mut Option<Box<ItemValidator<R>>>,
-    empty: &HashSet<MessageIndex>,
+    empty: &HashSet<ValidatorIndex>,
 ) -> bool {
     let Some(item) = items else {
         return false;
     };
-    if !prune_value(&mut item.value, empty) {
-        return false;
-    }
+    let changed = prune_value(&mut item.value, empty);
     if item.value.is_empty() {
         *items = None;
+        return true;
     }
-    true
+    changed
 }

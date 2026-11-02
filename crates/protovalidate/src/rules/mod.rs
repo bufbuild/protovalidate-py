@@ -35,7 +35,9 @@ use buffa_descriptor::MessageIndex;
 use crate::cel;
 use crate::protobuf::{Field, Oneof, Runtime, Scalar, Singular};
 use crate::validate::FieldPathElement;
-use standard::Checks;
+use standard::{
+    AnyTest, Check, Cmp, Duration, FieldMaskTest, ListTest, MapTest, ScalarChecks, TimestampTest,
+};
 
 /// A CEL expression, and what it reports when it fails.
 pub(crate) struct CelRule {
@@ -65,6 +67,18 @@ pub(crate) type Built<R> = Result<Arc<MessageValidator<R>>, String>;
 /// as a `MessageIndex` identifies a descriptor in its pool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ValidatorIndex(u32);
+
+impl ValidatorIndex {
+    /// The index of the validator at `position` in a cache.
+    fn at(position: usize) -> Self {
+        Self(u32::try_from(position).expect("fewer than 2^32 message types are validated"))
+    }
+
+    /// How far this index is past `base`, or `None` if it comes before.
+    pub(crate) fn offset_from(self, base: Self) -> Option<usize> {
+        self.0.checked_sub(base.0).map(|offset| offset as usize)
+    }
+}
 
 /// The compiled rules of every message type validated so far. Validators
 /// are never removed, so a [`ValidatorIndex`] remains valid.
@@ -106,18 +120,18 @@ impl<R: Runtime> ValidatorCache<R> {
         (*message, built)
     }
 
-    /// Every compiled message type, along with its validator.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (MessageIndex, &Built<R>)> {
+    /// Every validator, along with its index.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (ValidatorIndex, &Built<R>)> {
         self.validators
             .iter()
-            .map(|(message, built)| (*message, built))
+            .enumerate()
+            .map(|(position, (_, built))| (ValidatorIndex::at(position), built))
     }
 
     /// The index that a validator will receive if `offset` others are added
     /// before it.
     pub(crate) fn next_index(&self, offset: usize) -> ValidatorIndex {
-        let index = self.validators.len() + offset;
-        ValidatorIndex(u32::try_from(index).expect("fewer than 2^32 message types are validated"))
+        ValidatorIndex::at(self.validators.len() + offset)
     }
 
     /// Adds the validator of `message`, whose rules have not been compiled
@@ -128,14 +142,6 @@ impl<R: Runtime> ValidatorCache<R> {
         self.indices.insert(message, index);
         index
     }
-}
-
-/// The message type of a value, whose rules are evaluated after the value's
-/// own rules, along with the index of its validator.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Nested {
-    pub message: MessageIndex,
-    pub validator: ValidatorIndex,
 }
 
 /// The rules of one message type. A message-typed field's messages are
@@ -189,10 +195,11 @@ pub(crate) enum FieldValidator<R: Runtime> {
     /// A singular scalar or enum field whose only rules are native checks
     /// of its own kind, as [`scalar_checks`] confirms. Its value is read
     /// directly as its kind, rather than as a [`Val`](crate::protobuf::Val).
-    Scalar(FieldHeader<R>, Checks),
-    /// A singular message field with no rules of its own, only those of its
-    /// message type. An unset field is skipped.
-    Message(FieldHeader<R>, Nested),
+    Scalar(FieldHeader<R>, ScalarChecks),
+    /// A singular message field with no rules of its own. It is validated
+    /// by the rules of its message type, through the validator at this
+    /// index. An unset field is skipped.
+    Message(FieldHeader<R>, ValidatorIndex),
     /// Any other field, validated through its value, read as a
     /// [`Val`](crate::protobuf::Val), and through the validators of its
     /// items. The value's rules are boxed to keep the other variants small.
@@ -201,12 +208,12 @@ pub(crate) enum FieldValidator<R: Runtime> {
 
 /// Whether `checks` are the native checks for a value of kind `singular`,
 /// so that the value can be read as that kind and checked directly.
-pub(crate) fn scalar_checks(checks: &Checks, singular: Singular) -> bool {
+pub(crate) fn scalar_checks(checks: &ScalarChecks, singular: Singular) -> bool {
     matches!(
         (checks, singular),
-        (Checks::Bool(_), Singular::Scalar(Scalar::Bool))
+        (ScalarChecks::Bool(_), Singular::Scalar(Scalar::Bool))
             | (
-                Checks::Int(_),
+                ScalarChecks::Int(_),
                 Singular::Scalar(
                     Scalar::Int32
                         | Scalar::Int64
@@ -217,18 +224,18 @@ pub(crate) fn scalar_checks(checks: &Checks, singular: Singular) -> bool {
                 ),
             )
             | (
-                Checks::Uint(_),
+                ScalarChecks::Uint(_),
                 Singular::Scalar(
                     Scalar::Uint32 | Scalar::Uint64 | Scalar::Fixed32 | Scalar::Fixed64
                 ),
             )
             | (
-                Checks::Double(_),
+                ScalarChecks::Double(_),
                 Singular::Scalar(Scalar::Float | Scalar::Double)
             )
-            | (Checks::String(_), Singular::Scalar(Scalar::String))
-            | (Checks::Bytes(_), Singular::Scalar(Scalar::Bytes))
-            | (Checks::Enum(_), Singular::Enum)
+            | (ScalarChecks::String(_), Singular::Scalar(Scalar::String))
+            | (ScalarChecks::Bytes(_), Singular::Scalar(Scalar::Bytes))
+            | (ScalarChecks::Enum(_), Singular::Enum)
     )
 }
 
@@ -260,63 +267,97 @@ pub(crate) struct ItemValidator<R: Runtime> {
 pub(crate) struct ValueValidator<R: Runtime> {
     /// The `(buf.validate.field).cel` and `.cel_expression` rules.
     pub custom: Option<CelPrograms>,
-    /// The native rule checks.
-    pub checks: Checks,
-    /// The field to validate for wrapper types.
-    pub wrapper: Option<Field<R>>,
-    /// The fields of a well-known type that its rules read.
-    pub wkt: Option<WellKnownFields<R>>,
+    /// The native rule checks, with the fields they read.
+    pub native: NativeChecks<R>,
     /// The predefined CEL of the standard rules for which we do not have
     /// native rule implementations.
     pub predefined: Option<CelPrograms>,
-    /// The message type of the value, whose own rules are evaluated after
-    /// these.
-    pub nested: Option<Nested>,
+    /// The index of the validator of the value's message type, whose own
+    /// rules are evaluated after these.
+    pub nested: Option<ValidatorIndex>,
 }
 
 impl<R: Runtime> Default for ValueValidator<R> {
     fn default() -> Self {
         Self {
             custom: None,
-            checks: Checks::default(),
-            wrapper: None,
-            wkt: None,
+            native: NativeChecks::None,
             predefined: None,
             nested: None,
         }
     }
 }
 
-/// The fields of a well-known type that its standard rules read.
-pub(crate) enum WellKnownFields<R: Runtime> {
-    /// `google.protobuf.Any.type_url`.
-    Any { type_url: Field<R> },
-    /// `seconds` and `nanos` of `google.protobuf.Duration` or `Timestamp`.
-    Time { seconds: Field<R>, nanos: Field<R> },
-    /// `google.protobuf.FieldMask.paths`.
-    FieldMask { paths: Field<R> },
+/// The native checks of a value, with the fields that evaluating them
+/// reads from the value.
+pub(crate) enum NativeChecks<R: Runtime> {
+    /// Nothing is checked natively.
+    None,
+    /// Checks of a scalar or enum value.
+    Scalar(ScalarChecks),
+    /// Checks of the scalar that a wrapper message holds in `field`, which
+    /// is how CEL unboxes a wrapper.
+    Wrapped {
+        checks: ScalarChecks,
+        field: Field<R>,
+    },
+    /// Checks of a repeated field. `element` is the `value` field of
+    /// wrapper elements, which `unique` compares the elements through. It
+    /// is set only when `unique` is checked on a list of wrappers.
+    List {
+        checks: Vec<Check<ListTest>>,
+        element: Option<Field<R>>,
+    },
+    /// Checks of a map field.
+    Map(Vec<Check<MapTest>>),
+    /// Checks of a `google.protobuf.Duration`, read from its `seconds` and
+    /// `nanos`.
+    Duration {
+        checks: Vec<Check<Cmp<Duration>>>,
+        seconds: Field<R>,
+        nanos: Field<R>,
+    },
+    /// Checks of a `google.protobuf.Timestamp`, read from its `seconds` and
+    /// `nanos`.
+    Timestamp {
+        checks: Vec<Check<TimestampTest>>,
+        seconds: Field<R>,
+        nanos: Field<R>,
+    },
+    /// Checks of a `google.protobuf.FieldMask`, read from its `paths`.
+    FieldMask {
+        checks: Vec<Check<FieldMaskTest>>,
+        paths: Field<R>,
+    },
+    /// Checks of a `google.protobuf.Any`, read from its `type_url`.
+    Any {
+        checks: Vec<Check<AnyTest>>,
+        type_url: Field<R>,
+    },
 }
 
 impl<R: Runtime> ValueValidator<R> {
     /// Whether any rule other than those of the nested type reads the
-    /// value. The wrapper and well-known type fields are only read by the
-    /// checks.
+    /// value.
     pub(crate) fn reads_value(&self) -> bool {
-        self.custom.is_some() || self.predefined.is_some() || !self.checks.is_empty()
+        self.custom.is_some()
+            || self.predefined.is_some()
+            || !matches!(self.native, NativeChecks::None)
     }
 
     /// Whether validating a value does nothing.
     pub(crate) fn is_empty(&self) -> bool {
-        !self.reads_value() && self.wrapper.is_none() && self.wkt.is_none() && self.nested.is_none()
+        !self.reads_value() && self.nested.is_none()
     }
 }
 
-/// The message type of the values of a field with `value` and `kind`,
-/// whether the field holds them directly or in its items.
+/// The index of the validator of the message type of the values of a field
+/// with `value` and `kind`, whether the field holds them directly or in its
+/// items.
 pub(crate) fn nested_type<R: Runtime>(
     value: &ValueValidator<R>,
     kind: &FieldKind<R>,
-) -> Option<Nested> {
+) -> Option<ValidatorIndex> {
     let items = match kind {
         FieldKind::List { items } => items.as_deref(),
         FieldKind::Map { values, .. } => values.as_deref(),
@@ -328,8 +369,9 @@ pub(crate) fn nested_type<R: Runtime>(
 }
 
 impl<R: Runtime> FieldValidator<R> {
-    /// The message type of the field's values, if they are messages.
-    pub(crate) fn nested_type(&self) -> Option<Nested> {
+    /// The index of the validator of the message type of the field's
+    /// values, if they are messages.
+    pub(crate) fn nested_type(&self) -> Option<ValidatorIndex> {
         match self {
             Self::Presence(_) | Self::Scalar(..) => None,
             Self::Message(_, nested) => Some(*nested),

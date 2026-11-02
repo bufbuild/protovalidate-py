@@ -20,20 +20,15 @@
 //! that ends the walk early, a read failing or the first violation when
 //! failing fast, propagates as an [`Abort`] through `?`.
 
-use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::ops::ControlFlow;
 
 use buffa_descriptor::{DescriptorPool, MessageIndex};
 
-use super::standard::{
-    Check, Checks, Duration, EnumTest, ListTest, MapTest, Test, Timestamp, UniqueKey,
-    has_duplicates, total_nanos,
-};
+use super::standard::{EnumTest, ScalarChecks};
 use super::{
     CelPrograms, FieldHeader, FieldKind, FieldValidator, ItemValidator, MessageOneof,
-    MessageValidator, Nested, OneofValidator, ValidatorCache, ValidatorIndex, ValueValidator,
-    WellKnownFields,
+    MessageValidator, OneofValidator, ValidatorCache, ValidatorIndex, ValueValidator,
 };
 use crate::Error;
 use crate::cel::{self, Env, Frame, ScalarValue, This, Value};
@@ -43,6 +38,10 @@ use crate::protobuf::{
 };
 use crate::validate::__buffa::oneof::field_path_element::Subscript;
 use crate::validate::{FieldPath, FieldPathElement, Violation};
+
+mod native;
+
+use native::{evaluate, run, run_with};
 
 /// Why the walk stopped before the end of the message.
 pub(crate) enum Abort<E> {
@@ -254,12 +253,15 @@ impl<'a, R: Runtime> Walk<'a, R> {
         result
     }
 
-    /// The validator of a message type reachable from the root, or why
-    /// its rules did not compile.
-    fn validator(&self, index: ValidatorIndex) -> Result<&'a MessageValidator<R>, Abort<R::Error>> {
-        match self.validators.validator(index).1 {
-            Ok(validator) => Ok(validator),
-            Err(error) => Err(Error::Compilation(error.clone()).into()),
+    /// The validator of a message type reachable from the root, along with
+    /// the message type, or why its rules did not compile.
+    fn validator(
+        &self,
+        index: ValidatorIndex,
+    ) -> Result<(MessageIndex, &'a MessageValidator<R>), Abort<R::Error>> {
+        match self.validators.validator(index) {
+            (message, Ok(validator)) => Ok((message, validator)),
+            (_, Err(error)) => Err(Error::Compilation(error.clone()).into()),
         }
     }
 }
@@ -498,7 +500,7 @@ impl<R: Runtime> FieldHeader<R> {
     /// than as a [`Val`].
     fn validate_scalar<'a>(
         &'a self,
-        checks: &'a Checks,
+        checks: &'a ScalarChecks,
         walk: &mut Walk<'a, R>,
         message: &R::Message<'_>,
         present: Option<bool>,
@@ -506,15 +508,16 @@ impl<R: Runtime> FieldHeader<R> {
         let present = self.presence(message, present)?;
         let field = &self.field;
         match (checks, field.kind()) {
-            (Checks::Bool(checks), Kind::Singular(Singular::Scalar(Scalar::Bool))) => self.scalar(
-                walk,
-                present,
-                || message.get_bool(field),
-                |value| *value,
-                |out, value| run(checks, value, out),
-            ),
+            (ScalarChecks::Bool(checks), Kind::Singular(Singular::Scalar(Scalar::Bool))) => self
+                .scalar(
+                    walk,
+                    present,
+                    || message.get_bool(field),
+                    |value| *value,
+                    |out, value| run(checks, value, out),
+                ),
             (
-                Checks::Int(checks),
+                ScalarChecks::Int(checks),
                 Kind::Singular(Singular::Scalar(
                     Scalar::Int32
                     | Scalar::Int64
@@ -531,7 +534,7 @@ impl<R: Runtime> FieldHeader<R> {
                 |out, value| run(checks, value, out),
             ),
             (
-                Checks::Uint(checks),
+                ScalarChecks::Uint(checks),
                 Kind::Singular(Singular::Scalar(
                     Scalar::Uint32 | Scalar::Uint64 | Scalar::Fixed32 | Scalar::Fixed64,
                 )),
@@ -543,7 +546,7 @@ impl<R: Runtime> FieldHeader<R> {
                 |out, value| run(checks, value, out),
             ),
             (
-                Checks::Double(checks),
+                ScalarChecks::Double(checks),
                 Kind::Singular(Singular::Scalar(Scalar::Float | Scalar::Double)),
             ) => self.scalar(
                 walk,
@@ -552,15 +555,16 @@ impl<R: Runtime> FieldHeader<R> {
                 |value| value.to_bits() != 0,
                 |out, value| run(checks, value, out),
             ),
-            (Checks::String(checks), Kind::Singular(Singular::Scalar(Scalar::String))) => self
-                .scalar(
+            (ScalarChecks::String(checks), Kind::Singular(Singular::Scalar(Scalar::String))) => {
+                self.scalar(
                     walk,
                     present,
                     || message.get_str(field),
                     |value| !value.is_empty(),
                     |out, value| run(checks, &**value, out),
-                ),
-            (Checks::Bytes(checks), Kind::Singular(Singular::Scalar(Scalar::Bytes))) => self
+                )
+            }
+            (ScalarChecks::Bytes(checks), Kind::Singular(Singular::Scalar(Scalar::Bytes))) => self
                 .scalar(
                     walk,
                     present,
@@ -568,7 +572,7 @@ impl<R: Runtime> FieldHeader<R> {
                     |value| !value.is_empty(),
                     |out, value| run(checks, &**value, out),
                 ),
-            (Checks::Enum(checks), Kind::Singular(Singular::Enum)) => {
+            (ScalarChecks::Enum(checks), Kind::Singular(Singular::Enum)) => {
                 let pool = walk.pool;
                 self.scalar(
                     walk,
@@ -630,7 +634,7 @@ impl<R: Runtime> FieldHeader<R> {
     /// rules of its message type `nested` alone, without a [`Val`].
     fn validate_message<'a>(
         &'a self,
-        nested: Nested,
+        nested: ValidatorIndex,
         walk: &mut Walk<'a, R>,
         message: &R::Message<'_>,
         present: Option<bool>,
@@ -651,8 +655,8 @@ impl<R: Runtime> FieldHeader<R> {
         let Some(sub) = message.get_message(&self.field).read()? else {
             return Ok(());
         };
-        let validator = walk.validator(nested.validator)?;
-        let frame = CelFrame::new(walk.env, walk.pool, nested.message, &sub);
+        let (message_type, validator) = walk.validator(nested)?;
+        let frame = CelFrame::new(walk.env, walk.pool, message_type, &sub);
         walk.at(&self.element, |walk| validator.validate(walk, &sub, &frame))
     }
 
@@ -862,10 +866,13 @@ impl<R: Runtime> ValueValidator<R> {
         // A message value is bound to `this`, and validated, through a
         // frame of its own, parsed at most once.
         let nested = match (sub, self.nested) {
-            (Some(sub), Some(nested)) => Some((
-                walk.validator(nested.validator)?,
-                CelFrame::new(walk.env, walk.pool, nested.message, sub),
-            )),
+            (Some(sub), Some(nested)) => {
+                let (message_type, validator) = walk.validator(nested)?;
+                Some((
+                    validator,
+                    CelFrame::new(walk.env, walk.pool, message_type, sub),
+                ))
+            }
             _ => None,
         };
         let child = nested.as_ref().map(|(_, child)| child);
@@ -874,8 +881,7 @@ impl<R: Runtime> ValueValidator<R> {
             if let Some(custom) = &self.custom {
                 custom.run(cel_this(value, bind, child)?, &mut walk.out)?;
             }
-            self.checks
-                .check(walk, value, self.wrapper.as_ref(), self.wkt.as_ref())?;
+            self.native.check(walk, value)?;
             if let Some(predefined) = &self.predefined {
                 predefined.run(cel_this(value, bind, child)?, &mut walk.out)?;
             }
@@ -914,151 +920,6 @@ fn cel_this<'v, R: Runtime>(
             Err(Error::Unexpected("no message to bind this to".to_owned()).into())
         }
     }
-}
-
-impl Checks {
-    /// Runs the standard checks against a value. A wrapper message is
-    /// checked through its `value` field, matching how CEL unboxes wrappers.
-    /// For a list of wrappers, `wrapper` is the elements' `value` field.
-    fn check<R: Runtime>(
-        &self,
-        walk: &mut Walk<'_, R>,
-        value: Option<&Val<'_, R>>,
-        wrapper: Option<&Field<R>>,
-        wkt: Option<&WellKnownFields<R>>,
-    ) -> Result<(), Abort<R::Error>> {
-        match (wrapper, value) {
-            (Some(wrapper), Some(Val::Message(message))) => {
-                let unboxed = read::<R>(message, wrapper).read()?;
-                self.check_value(walk, unboxed.as_ref(), None, wkt)
-            }
-            (Some(wrapper), Some(Val::List(_))) => {
-                self.check_value(walk, value, Some(wrapper), wkt)
-            }
-            (Some(_), _) => self.check_value(walk, None, None, wkt),
-            (None, value) => self.check_value(walk, value, None, wkt),
-        }
-    }
-
-    /// `element_wrapper` is the `value` field of a list's wrapper elements,
-    /// which `unique` compares. `wkt` holds the fields that the rules of a
-    /// well-known type read.
-    fn check_value<R: Runtime>(
-        &self,
-        walk: &mut Walk<'_, R>,
-        value: Option<&Val<'_, R>>,
-        element_wrapper: Option<&Field<R>>,
-        wkt: Option<&WellKnownFields<R>>,
-    ) -> Result<(), Abort<R::Error>> {
-        let pool = walk.pool;
-        let out = &mut walk.out;
-        match self {
-            Self::None => Ok(()),
-            Self::Bool(checks) => run(checks, &bool_of(value)?, out),
-            Self::Int(checks) => run(checks, &int_of(value)?, out),
-            Self::Uint(checks) => run(checks, &uint_of(value)?, out),
-            Self::Double(checks) => run(checks, &double_of(value)?, out),
-            Self::String(checks) => run(checks, str_of(value)?, out),
-            Self::Bytes(checks) => run(checks, bytes_of(value)?, out),
-            Self::Duration(checks) => run(checks, &Duration(nanos_of(value, wkt)?), out),
-            Self::Timestamp(checks) => run(checks, &Timestamp(nanos_of(value, wkt)?), out),
-            Self::FieldMask(checks) => with_paths(value, wkt, |paths| run(checks, paths, out))?,
-            Self::Any(checks) => {
-                let Some(WellKnownFields::Any { type_url: field }) = wkt else {
-                    return Err(missing_fields("Any"));
-                };
-                let type_url = match value {
-                    Some(Val::Message(any)) => read::<R>(any, field).read()?,
-                    None => None,
-                    Some(other) => return Err(mismatch("an Any", other)),
-                };
-                let type_url = match &type_url {
-                    Some(Val::String(url)) => url.as_ref(),
-                    _ => "",
-                };
-                run(checks, type_url, out)
-            }
-            Self::Enum(checks) => {
-                let number = enum_of(value)?;
-                run_with(checks, out, |test| {
-                    Ok(match test {
-                        EnumTest::Cmp(cmp) => evaluate(cmp, &i64::from(number))?,
-                        EnumTest::DefinedOnly(index) => {
-                            pool.enumeration(*index).value(number).is_none()
-                        }
-                    })
-                })
-            }
-            Self::List(checks) => {
-                let list = match value {
-                    Some(Val::List(list)) => Some(list),
-                    None => None,
-                    Some(other) => return Err(mismatch("a list", other)),
-                };
-                let len = match list {
-                    Some(list) => list.len().read()?,
-                    None => 0,
-                };
-                run_with(checks, out, |test| {
-                    Ok(match (test, list) {
-                        (ListTest::MinItems(n), _) => (len as u64) < *n,
-                        (ListTest::MaxItems(n), _) => len as u64 > *n,
-                        (ListTest::Unique, Some(list)) => {
-                            has_duplicate_items::<R>(list, len, element_wrapper)?
-                        }
-                        (ListTest::Unique, None) => false,
-                    })
-                })
-            }
-            Self::Map(checks) => {
-                let len = match value {
-                    Some(Val::Map(map)) => map.len().read()?,
-                    None => 0,
-                    Some(other) => return Err(mismatch("a map", other)),
-                };
-                run_with(checks, out, |test| {
-                    Ok(match test {
-                        MapTest::MinPairs(n) => (len as u64) < *n,
-                        MapTest::MaxPairs(n) => len as u64 > *n,
-                    })
-                })
-            }
-        }
-    }
-}
-
-/// Runs checks of one type against the value they test.
-fn run<T, V, E>(checks: &[Check<T>], value: &V, out: &mut Violations) -> Result<(), Abort<E>>
-where
-    T: Test<V>,
-    V: ?Sized,
-{
-    run_with(checks, out, |test| evaluate(test, value))
-}
-
-/// Runs checks whose test needs more than the value, recording a violation
-/// for each one `fails` reports.
-fn run_with<T, E>(
-    checks: &[Check<T>],
-    out: &mut Violations,
-    mut fails: impl FnMut(&T) -> Result<bool, Abort<E>>,
-) -> Result<(), Abort<E>> {
-    for check in checks {
-        if fails(&check.test)? {
-            out.push(&check.id, check.message.clone(), &check.rule_path)?;
-        }
-    }
-    Ok(())
-}
-
-/// Whether a test fails, or why it could not be evaluated.
-fn evaluate<T, V, E>(test: &T, value: &V) -> Result<bool, Abort<E>>
-where
-    T: Test<V>,
-    V: ?Sized,
-{
-    test.fails(value)
-        .map_err(|message| Error::Evaluation(message).into())
 }
 
 /// Whether a field is set.
@@ -1154,186 +1015,4 @@ fn cel_scalar<'v, R: Runtime>(
             Singular::Message => return None,
         },
     })
-}
-
-// The typed reads of a value the checks test. `None` is a field the
-// message does not have at all, which reads as the type's default. Any
-// other type is a runtime handing out a value its descriptor does not
-// declare.
-
-fn mismatch<R: Runtime>(expected: &str, got: &Val<'_, R>) -> Abort<R::Error> {
-    let got = match got {
-        Val::Bool(_) => "a bool",
-        Val::Int(_) => "an int",
-        Val::Uint(_) => "a uint",
-        Val::Double(_) => "a double",
-        Val::Enum(_) => "an enum",
-        Val::String(_) => "a string",
-        Val::Bytes(_) => "bytes",
-        Val::Message(_) => "a message",
-        Val::List(_) => "a list",
-        Val::Map(_) => "a map",
-    };
-    Error::Unexpected(format!("expected {expected}, the runtime read {got}")).into()
-}
-
-fn bool_of<R: Runtime>(value: Option<&Val<'_, R>>) -> Result<bool, Abort<R::Error>> {
-    match value {
-        None => Ok(false),
-        Some(Val::Bool(b)) => Ok(*b),
-        Some(other) => Err(mismatch("a bool", other)),
-    }
-}
-
-fn int_of<R: Runtime>(value: Option<&Val<'_, R>>) -> Result<i64, Abort<R::Error>> {
-    match value {
-        None => Ok(0),
-        Some(Val::Int(i)) => Ok(*i),
-        Some(Val::Enum(e)) => Ok(i64::from(*e)),
-        Some(other) => Err(mismatch("an int", other)),
-    }
-}
-
-fn uint_of<R: Runtime>(value: Option<&Val<'_, R>>) -> Result<u64, Abort<R::Error>> {
-    match value {
-        None => Ok(0),
-        Some(Val::Uint(u)) => Ok(*u),
-        Some(other) => Err(mismatch("a uint", other)),
-    }
-}
-
-fn double_of<R: Runtime>(value: Option<&Val<'_, R>>) -> Result<f64, Abort<R::Error>> {
-    match value {
-        None => Ok(0.0),
-        Some(Val::Double(f)) => Ok(*f),
-        Some(other) => Err(mismatch("a double", other)),
-    }
-}
-
-fn enum_of<R: Runtime>(value: Option<&Val<'_, R>>) -> Result<i32, Abort<R::Error>> {
-    match value {
-        None => Ok(0),
-        Some(Val::Enum(e)) => Ok(*e),
-        Some(other) => Err(mismatch("an enum", other)),
-    }
-}
-
-fn str_of<'v, R: Runtime>(value: Option<&'v Val<'_, R>>) -> Result<&'v str, Abort<R::Error>> {
-    match value {
-        None => Ok(""),
-        Some(Val::String(s)) => Ok(s),
-        Some(other) => Err(mismatch("a string", other)),
-    }
-}
-
-fn bytes_of<'v, R: Runtime>(value: Option<&'v Val<'_, R>>) -> Result<&'v [u8], Abort<R::Error>> {
-    match value {
-        None => Ok(&[]),
-        Some(Val::Bytes(b)) => Ok(b),
-        Some(other) => Err(mismatch("bytes", other)),
-    }
-}
-
-/// The error for rules of a well-known type that were compiled without the
-/// fields they read.
-fn missing_fields<E>(what: &str) -> Abort<E> {
-    Error::Unexpected(format!(
-        "the {what} rules were compiled without the fields they read"
-    ))
-    .into()
-}
-
-/// The `seconds` and `nanos` of a `Duration` or `Timestamp` message
-/// combined into nanoseconds. Zero for a missing message.
-fn nanos_of<R: Runtime>(
-    value: Option<&Val<'_, R>>,
-    wkt: Option<&WellKnownFields<R>>,
-) -> Result<i128, Abort<R::Error>> {
-    let message = match value {
-        None => return Ok(0),
-        Some(Val::Message(message)) => message,
-        Some(other) => return Err(mismatch("a message", other)),
-    };
-    let Some(WellKnownFields::Time { seconds, nanos }) = wkt else {
-        return Err(missing_fields("Duration or Timestamp"));
-    };
-    let seconds = match read::<R>(message, seconds).read()? {
-        Some(Val::Int(seconds)) => seconds,
-        _ => 0,
-    };
-    let nanos = match read::<R>(message, nanos).read()? {
-        Some(Val::Int(nanos)) => nanos,
-        _ => 0,
-    };
-    Ok(total_nanos(seconds, nanos))
-}
-
-/// Runs `f` on the `paths` of a `FieldMask` message, none for a missing
-/// message.
-fn with_paths<R: Runtime, T>(
-    value: Option<&Val<'_, R>>,
-    wkt: Option<&WellKnownFields<R>>,
-    f: impl FnOnce(&[Cow<'_, str>]) -> T,
-) -> Result<T, Abort<R::Error>> {
-    let message = match value {
-        None => return Ok(f(&[])),
-        Some(Val::Message(message)) => message,
-        Some(other) => return Err(mismatch("a message", other)),
-    };
-    let Some(WellKnownFields::FieldMask { paths: field }) = wkt else {
-        return Err(missing_fields("FieldMask"));
-    };
-    let Some(Val::List(list)) = read::<R>(message, field).read()? else {
-        return Ok(f(&[]));
-    };
-    let mut paths = Vec::new();
-    for index in 0..list.len().read()? {
-        if let Some(Val::String(path)) = list.get(index).read()? {
-            paths.push(path);
-        }
-    }
-    Ok(f(&paths))
-}
-
-/// Whether a list has two elements that `unique()` considers equal.
-/// Wrapper elements are compared by the scalar in their `wrapper` field.
-fn has_duplicate_items<R: Runtime>(
-    list: &R::List<'_>,
-    len: usize,
-    wrapper: Option<&Field<R>>,
-) -> Result<bool, Abort<R::Error>> {
-    let mut items = Vec::with_capacity(len);
-    for index in 0..len {
-        if let Some(item) = list.get(index).read()? {
-            items.push(item);
-        }
-    }
-    let Some(wrapper) = wrapper else {
-        return Ok(has_duplicates(items.iter().map(unique_key)));
-    };
-    let mut unboxed = Vec::with_capacity(items.len());
-    for item in &items {
-        match item {
-            Val::Message(message) => unboxed.push(read::<R>(message, wrapper).read()?),
-            other => return Err(mismatch("a wrapper message", other)),
-        }
-    }
-    Ok(has_duplicates(
-        unboxed
-            .iter()
-            .map(|value| value.as_ref().and_then(unique_key)),
-    ))
-}
-
-fn unique_key<'a, R: Runtime>(value: &'a Val<'_, R>) -> Option<UniqueKey<'a>> {
-    match value {
-        Val::Bool(b) => Some(UniqueKey::Bool(*b)),
-        Val::Int(i) => Some(UniqueKey::Int(*i)),
-        Val::Enum(e) => Some(UniqueKey::Int(i64::from(*e))),
-        Val::Uint(u) => Some(UniqueKey::Uint(*u)),
-        Val::Double(f) => UniqueKey::double(*f),
-        Val::String(s) => Some(UniqueKey::Str(s)),
-        Val::Bytes(b) => Some(UniqueKey::Bytes(b)),
-        Val::Message(_) | Val::List(_) | Val::Map(_) => None,
-    }
 }

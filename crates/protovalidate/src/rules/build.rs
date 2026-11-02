@@ -33,10 +33,10 @@ use buffa_descriptor::{
 
 use super::pending::{PendingField, PendingOneof, PendingValidator};
 use super::standard::build::Placement;
-use super::standard::{self, Checks};
+use super::standard::{self, Checks, ListTest};
 use super::{
-    CelPrograms, CelRule, FieldKind, ItemValidator, MessageOneof, Nested, ValidatorCache,
-    ValidatorIndex, ValueValidator, WellKnownFields,
+    CelPrograms, CelRule, FieldKind, ItemValidator, MessageOneof, NativeChecks, ValidatorCache,
+    ValidatorIndex, ValueValidator,
 };
 use crate::cel::{Env, Expression};
 use crate::descriptors::{self, Descriptors};
@@ -330,20 +330,6 @@ fn entry_element(field: &FieldDescriptor) -> FieldPathElement {
     element
 }
 
-/// Whether the rules are a scalar type's, which also apply to the type's
-/// wrapper message.
-fn is_scalar_rules(rules: &RulesType) -> bool {
-    !matches!(
-        rules,
-        RulesType::Repeated(_)
-            | RulesType::Map(_)
-            | RulesType::Any(_)
-            | RulesType::Duration(_)
-            | RulesType::FieldMask(_)
-            | RulesType::Timestamp(_)
-    )
-}
-
 /// The `FieldRules` field whose rules apply to values of a well-known
 /// message type: its own for `Any`, `Duration`, `FieldMask` and
 /// `Timestamp`, and the wrapped scalar's for a wrapper. `None` for any
@@ -445,14 +431,14 @@ impl<'a, R: Runtime> Builder<'a, R> {
             }
         }
         let known: &ValidatorCache<R> = cache;
-        let mut built: HashMap<MessageIndex, Result<PendingValidator<R>, String>> = HashMap::new();
-        for &idx in &new {
-            built.insert(idx, self.build_message(idx));
-        }
+        // The validator of `new[offset]` will be at `base + offset`.
+        let base = known.next_index(0);
+        let mut built: Vec<Result<PendingValidator<R>, String>> =
+            new.iter().map(|&idx| self.build_message(idx)).collect();
 
         // A field whose message type did not compile does not compile either.
         let mut failures = Vec::new();
-        for (&idx, validator) in &built {
+        for (offset, validator) in built.iter().enumerate() {
             let Ok(validator) = validator else {
                 continue;
             };
@@ -460,35 +446,33 @@ impl<'a, R: Runtime> Builder<'a, R> {
                 let Ok(compiled) = field else {
                     continue;
                 };
-                let Some(Nested {
-                    message: nested, ..
-                }) = compiled.nested_type()
-                else {
+                let Some(nested) = compiled.nested_type() else {
                     continue;
                 };
-                let error = match known.get(nested) {
-                    Some(validator) => validator.as_ref().err(),
-                    None => built
-                        .get(&nested)
-                        .and_then(|validator| validator.as_ref().err()),
+                let (nested_message, error) = if let Some(nested_offset) = nested.offset_from(base)
+                {
+                    (new[nested_offset], built[nested_offset].as_ref().err())
+                } else {
+                    let (message, validator) = known.validator(nested);
+                    (message, validator.as_ref().err())
                 };
                 let Some(error) = error else {
                     continue;
                 };
                 failures.push((
-                    idx,
+                    offset,
                     position,
                     format!(
                         "failed to compile embedded type {} for {}.{}: {error}",
-                        pool.message(nested).full_name(),
-                        pool.message(idx).full_name(),
+                        pool.message(nested_message).full_name(),
+                        pool.message(new[offset]).full_name(),
                         compiled.field.name()
                     ),
                 ));
             }
         }
-        for (idx, position, error) in failures {
-            if let Some(Ok(validator)) = built.get_mut(&idx) {
+        for (offset, position, error) in failures {
+            if let Ok(validator) = &mut built[offset] {
                 validator.fields[position] = Err(error);
             }
         }
@@ -501,14 +485,15 @@ impl<'a, R: Runtime> Builder<'a, R> {
             let known_empty = known
                 .iter()
                 .filter(|(_, validator)| validator.as_ref().is_ok_and(|rules| rules.is_empty()))
-                .map(|(idx, _)| idx);
+                .map(|(index, _)| index);
             let built_empty = built
                 .iter()
+                .enumerate()
                 .filter(|(_, validator)| validator.as_ref().is_ok_and(PendingValidator::is_empty))
-                .map(|(&idx, _)| idx);
-            let empty: HashSet<MessageIndex> = known_empty.chain(built_empty).collect();
+                .map(|(offset, _)| known.next_index(offset));
+            let empty: HashSet<ValidatorIndex> = known_empty.chain(built_empty).collect();
             let mut changed = false;
-            for validator in built.values_mut().flatten() {
+            for validator in built.iter_mut().flatten() {
                 changed |= validator.prune(&empty);
             }
             if !changed {
@@ -516,8 +501,7 @@ impl<'a, R: Runtime> Builder<'a, R> {
             }
         }
 
-        for idx in new {
-            let pending = built.remove(&idx).expect("every new type is built");
+        for (idx, pending) in new.into_iter().zip(built) {
             let validator = pending.map(|pending| Arc::new(pending.finalize()));
             let index = cache.push(idx, validator);
             debug_assert_eq!(Some(&index), self.indices.get(&idx));
@@ -854,16 +838,15 @@ impl<'a, R: Runtime> Builder<'a, R> {
         Ok((value, remaining))
     }
 
-    /// A nested message type, along with the index of its validator.
-    fn nested(&self, message: MessageIndex) -> Nested {
-        let validator = *self.indices.get(&message).unwrap_or_else(|| {
+    /// The index of the validator of a nested message type.
+    fn nested(&self, message: MessageIndex) -> ValidatorIndex {
+        *self.indices.get(&message).unwrap_or_else(|| {
             panic!(
                 "the message type {} was not assigned a validator before the rules referring \
                  to it were built",
                 self.descriptors.pool.message(message).full_name()
             )
-        });
-        Nested { message, validator }
+        })
     }
 
     /// The standard rules set in a `FieldRules`, after checking that they
@@ -895,46 +878,12 @@ impl<'a, R: Runtime> Builder<'a, R> {
                 ));
             }
         }
-        let enum_ = if is_scalar_rules(&standard) {
-            value.wrapper = self
-                .message(target)
-                .and_then(|(idx, wrapper)| Some((idx, wrapper.field(1)?)))
-                .map(|(idx, field)| self.field(idx, field));
-            match target.kind {
-                DescriptorKind::Singular(SingularKind::Enum(idx)) => Some(idx),
-                _ => None,
-            }
-        } else {
-            if let (RulesType::Repeated(rules), DescriptorKind::List(SingularKind::Message(_))) =
-                (&standard, target.kind)
-                && rules.unique == Some(true)
-            {
-                // `unique()` compares scalars. Wrapper elements stand for
-                // the scalars they hold, as they do for every other rule,
-                // and are compared through their `value` field. Any other
-                // message element would fail every validation.
-                let wrapper = self
-                    .message(target)
-                    .filter(|(_, message)| wrapper_rules(message.full_name()).is_some())
-                    .and_then(|(idx, wrapper)| Some((idx, wrapper.field(1)?)));
-                let Some((idx, wrapper)) = wrapper else {
-                    return Err("repeated.unique is not supported for message items".to_owned());
-                };
-                value.wrapper = Some(self.field(idx, wrapper));
-            }
-            None
+        let enum_ = match target.kind {
+            DescriptorKind::Singular(SingularKind::Enum(idx)) => Some(idx),
+            _ => None,
         };
-        value.wkt = self.well_known_fields(target, &standard);
         let (checks, remaining) = self.standard_checks(got, standard, prefix, enum_, predefined)?;
-        // Rules with nothing to check natively, such as map rules that only
-        // contain rules for the values, read nothing. The wrapper and
-        // well-known type fields are only read by the checks.
-        if checks.is_empty() {
-            value.wrapper = None;
-            value.wkt = None;
-        } else {
-            value.checks = checks;
-        }
+        value.native = self.native(target, checks)?;
         Ok(remaining)
     }
 
@@ -946,26 +895,81 @@ impl<'a, R: Runtime> Builder<'a, R> {
         }
     }
 
-    /// The fields of a well-known type that its rules read. The type check
-    /// has already confirmed that the rules are for the target's type.
-    fn well_known_fields(
+    /// The native checks of a target, with the fields they read. Rules with
+    /// nothing to check natively, such as map rules that only contain rules
+    /// for the values, read nothing.
+    fn native(&self, target: &Target<'_>, checks: Checks) -> Result<NativeChecks<R>, String> {
+        if checks.is_empty() {
+            return Ok(NativeChecks::None);
+        }
+        Ok(match checks {
+            Checks::None => NativeChecks::None,
+            // A wrapper message stands for the scalar it holds, as it does
+            // in CEL, so its checks read that scalar from its `value` field.
+            Checks::Scalar(checks) => match self.message(target) {
+                Some(_) => NativeChecks::Wrapped {
+                    checks,
+                    field: self.well_known_field(target, 1, "value")?,
+                },
+                None => NativeChecks::Scalar(checks),
+            },
+            Checks::List(checks) => {
+                // `unique()` compares scalars. Wrapper elements stand for
+                // the scalars they hold, as they do for every other rule,
+                // and are compared through their `value` field. Any other
+                // message element would fail every validation.
+                let unique = checks
+                    .iter()
+                    .any(|check| matches!(check.test, ListTest::Unique));
+                let element = match (unique, self.message(target)) {
+                    (true, Some((_, message))) if wrapper_rules(message.full_name()).is_none() => {
+                        return Err("repeated.unique is not supported for message items".to_owned());
+                    }
+                    (true, Some(_)) => Some(self.well_known_field(target, 1, "value")?),
+                    _ => None,
+                };
+                NativeChecks::List { checks, element }
+            }
+            Checks::Map(checks) => NativeChecks::Map(checks),
+            Checks::Duration(checks) => NativeChecks::Duration {
+                checks,
+                seconds: self.well_known_field(target, 1, "seconds")?,
+                nanos: self.well_known_field(target, 2, "nanos")?,
+            },
+            Checks::Timestamp(checks) => NativeChecks::Timestamp {
+                checks,
+                seconds: self.well_known_field(target, 1, "seconds")?,
+                nanos: self.well_known_field(target, 2, "nanos")?,
+            },
+            Checks::FieldMask(checks) => NativeChecks::FieldMask {
+                checks,
+                paths: self.well_known_field(target, 1, "paths")?,
+            },
+            Checks::Any(checks) => NativeChecks::Any {
+                checks,
+                type_url: self.well_known_field(target, 1, "type_url")?,
+            },
+        })
+    }
+
+    /// The field numbered `number` and named `name` of the well-known
+    /// message type of a target's values, which the type's rules read.
+    fn well_known_field(
         &self,
         target: &Target<'_>,
-        standard: &RulesType,
-    ) -> Option<WellKnownFields<R>> {
-        let (idx, message) = self.message(target)?;
-        let field = |number| message.field(number).map(|field| self.field(idx, field));
-        Some(match standard {
-            RulesType::Any(_) => WellKnownFields::Any {
-                type_url: field(1)?,
-            },
-            RulesType::Duration(_) | RulesType::Timestamp(_) => WellKnownFields::Time {
-                seconds: field(1)?,
-                nanos: field(2)?,
-            },
-            RulesType::FieldMask(_) => WellKnownFields::FieldMask { paths: field(1)? },
-            _ => return None,
-        })
+        number: u32,
+        name: &str,
+    ) -> Result<Field<R>, String> {
+        let Some((idx, message)) = self.message(target) else {
+            return Err(format!(
+                "the rules of \"{}\" read the field {name} of a message, but its values are not messages",
+                target.name
+            ));
+        };
+        let Some(field) = message.field(number) else {
+            return Err(format!("{} has no field {name}", message.full_name()));
+        };
+        Ok(self.field(idx, field))
     }
 
     /// The `FieldRules` field whose rules apply to the target: `repeated`
@@ -1142,8 +1146,7 @@ mod tests {
     use crate::cel::{ScalarValue, This, Value};
     use crate::descriptors::{self, Descriptors};
     use crate::protobuf::testing::Untyped;
-    use crate::rules::standard::Checks;
-    use crate::rules::{FieldValidator, ValidatorCache};
+    use crate::rules::{FieldValidator, NativeChecks, ValidatorCache};
     use crate::validate::__buffa::oneof::field_rules::Type as RulesType;
     use crate::validate::{FIELD, FieldRules, PREDEFINED, PredefinedRules, Rule, StringRules};
     use crate::validator::cel_env;
@@ -1241,7 +1244,7 @@ mod tests {
             panic!("a field with a predefined rule is validated through its value");
         };
         assert!(
-            matches!(value.checks, Checks::None),
+            matches!(value.native, NativeChecks::None),
             "no native check covers test_len"
         );
         let predefined = value
