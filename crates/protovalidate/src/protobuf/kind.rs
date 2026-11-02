@@ -12,18 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Marker types for the kinds of value that
-//! [`Message::get`](super::Message::get) reads. Each kind is its own type, so
-//! a runtime's read for a kind is selected when `get` is compiled for that
-//! kind, rather than at run time.
+//! The kinds of value that [`Message::get`](super::Message::get) reads,
+//! such as [`Int`] or [`Message`].
 
 use std::borrow::Cow;
 
 use super::{Runtime, Val};
 
 /// Identifies a [`ValueKind`]. A runtime's `get` matches on
-/// [`ValueKind::ID`], and because the identifier is a constant for each
-/// kind, the compiler keeps only the matching arm.
+/// [`ValueKind::ID`] to decide how to read the field.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValueKindId {
     Bool,
@@ -41,14 +38,9 @@ pub enum ValueKindId {
 /// A kind of field value that [`Message::get`](super::Message::get) reads.
 ///
 /// A runtime's `get` passes the value it reads to the constructor for the
-/// value's kind, such as [`from_double`](Self::from_double). A kind's own
-/// constructor returns `Some(value)` and every other constructor returns
-/// `None`, so for a given kind the call compiles down to wrapping the value.
-///
-/// Pass a value to its constructor as soon as it is built. A value too
-/// large for registers, such as a message view that owns a buffer, is
-/// otherwise copied through the stack every time it moves through an
-/// intermediate `Result`, `Option` or [`Val`], which is measurably slower.
+/// value's kind, such as [`from_double`](Self::from_double), and returns
+/// the result. Pass the value to its constructor as soon as it is read,
+/// rather than wrapping it in a `Result`, `Option` or [`Val`] first.
 pub trait ValueKind<R: Runtime> {
     /// The type of the value read for this kind.
     type Value<'a>;

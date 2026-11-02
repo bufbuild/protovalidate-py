@@ -148,9 +148,8 @@ pub trait Message<R: Runtime> {
     ///
     /// An implementation typically matches on [`K::ID`](ValueKind::ID) and
     /// passes the value it reads to the constructor for that kind, such as
-    /// [`ValueKind::from_double`]. Because `K::ID` is a constant for each
-    /// kind, only the matching arm is compiled. A runtime that reads every
-    /// field as a [`Val`] can call [`ValueKind::from_val`] instead.
+    /// [`ValueKind::from_double`]. A runtime that reads every field as a
+    /// [`Val`] can call [`ValueKind::from_val`] instead.
     ///
     /// # Errors
     ///
@@ -230,8 +229,7 @@ pub trait Map<R: Runtime> {
         F: for<'k> FnMut(Key<'k, R>, Val<'k, R>) -> ControlFlow<B>;
 }
 
-/// A map entry's key, which is only read when the function is called. A map
-/// without key rules only needs its keys to describe a violation.
+/// A map entry's key, which is only read when the function is called.
 pub type Key<'k, R> = &'k dyn Fn() -> Result<Val<'k, R>, <R as Runtime>::Error>;
 
 /// Reads a field of any kind as a [`Val`], by calling [`Message::get`] with
