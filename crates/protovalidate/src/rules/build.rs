@@ -31,11 +31,12 @@ use buffa_descriptor::{
     SingularKind,
 };
 
+use super::pending::{PendingField, PendingOneof, PendingValidator};
 use super::standard::build::Placement;
 use super::standard::{self, Checks};
 use super::{
-    CelPrograms, CelRule, FieldKind, FieldValidator, ItemValidator, MessageOneof, MessageValidator,
-    Nested, OneofValidator, Plan, ValidatorCache, ValidatorIndex, ValueValidator, WellKnownFields,
+    CelPrograms, CelRule, FieldKind, ItemValidator, MessageOneof, Nested, ValidatorCache,
+    ValidatorIndex, ValueValidator, WellKnownFields,
 };
 use crate::cel::{Env, Expression};
 use crate::descriptors::{self, Descriptors};
@@ -329,20 +330,6 @@ fn entry_element(field: &FieldDescriptor) -> FieldPathElement {
     element
 }
 
-/// The message type of a field's values, whether the field holds them
-/// directly or in its items.
-pub(crate) fn nested_type<R: Runtime>(field: &FieldValidator<R>) -> Option<Nested> {
-    let items = match &field.kind {
-        FieldKind::List { items } => items.as_deref(),
-        FieldKind::Map { values, .. } => values.as_deref(),
-        FieldKind::Singular => None,
-    };
-    field
-        .value
-        .nested
-        .or_else(|| items.and_then(|items| items.value.nested))
-}
-
 /// Whether the rules are a scalar type's, which also apply to the type's
 /// wrapper message.
 fn is_scalar_rules(rules: &RulesType) -> bool {
@@ -458,7 +445,7 @@ impl<'a, R: Runtime> Builder<'a, R> {
             }
         }
         let known: &ValidatorCache<R> = cache;
-        let mut built: HashMap<MessageIndex, Result<MessageValidator<R>, String>> = HashMap::new();
+        let mut built: HashMap<MessageIndex, Result<PendingValidator<R>, String>> = HashMap::new();
         for &idx in &new {
             built.insert(idx, self.build_message(idx));
         }
@@ -475,7 +462,7 @@ impl<'a, R: Runtime> Builder<'a, R> {
                 };
                 let Some(Nested {
                     message: nested, ..
-                }) = nested_type(compiled)
+                }) = compiled.nested_type()
                 else {
                     continue;
                 };
@@ -503,7 +490,6 @@ impl<'a, R: Runtime> Builder<'a, R> {
         for (idx, position, error) in failures {
             if let Some(Ok(validator)) = built.get_mut(&idx) {
                 validator.fields[position] = Err(error);
-                validator.ungroup(position);
             }
         }
 
@@ -518,7 +504,7 @@ impl<'a, R: Runtime> Builder<'a, R> {
                 .map(|(idx, _)| idx);
             let built_empty = built
                 .iter()
-                .filter(|(_, validator)| validator.as_ref().is_ok_and(MessageValidator::is_empty))
+                .filter(|(_, validator)| validator.as_ref().is_ok_and(PendingValidator::is_empty))
                 .map(|(&idx, _)| idx);
             let empty: HashSet<MessageIndex> = known_empty.chain(built_empty).collect();
             let mut changed = false;
@@ -531,11 +517,8 @@ impl<'a, R: Runtime> Builder<'a, R> {
         }
 
         for idx in new {
-            let validator = built.remove(&idx).expect("every new type is built");
-            let validator = validator.map(|mut validator| {
-                validator.finalize();
-                Arc::new(validator)
-            });
+            let pending = built.remove(&idx).expect("every new type is built");
+            let validator = pending.map(|pending| Arc::new(pending.finalize()));
             let index = cache.push(idx, validator);
             debug_assert_eq!(Some(&index), self.indices.get(&idx));
         }
@@ -572,7 +555,7 @@ impl<'a, R: Runtime> Builder<'a, R> {
         Field::from_descriptor(field, message_type, field_type)
     }
 
-    fn build_message(&mut self, idx: MessageIndex) -> Result<MessageValidator<R>, String> {
+    fn build_message(&mut self, idx: MessageIndex) -> Result<PendingValidator<R>, String> {
         let pool = &*self.descriptors.pool;
         let message = pool.message(idx);
         let (custom, oneof_rules) = match descriptors::message_rules(message) {
@@ -615,27 +598,26 @@ impl<'a, R: Runtime> Builder<'a, R> {
         }
 
         let oneofs = self.oneofs(idx, message, &fields);
-        Ok(MessageValidator {
+        Ok(PendingValidator {
             message_type: self.resolved(idx).message_type.clone(),
             cel,
             message_oneofs,
             oneofs,
             fields,
-            plain: Box::default(),
         })
     }
 
-    /// The oneofs that are `required` or have members with validators, along
-    /// with which of `fields` each validates. A member that its own rules
-    /// require, or whose rules did not compile, is validated as a field
-    /// instead, as is the field of a synthetic oneof, which tracks its own
-    /// presence.
+    /// The oneofs that are `required` or have members with rules, along
+    /// with the positions in `fields` of the members each validates. A
+    /// member that its own rules require, or whose rules did not compile,
+    /// is validated as a field instead, as is the field of a synthetic
+    /// oneof, which tracks its own presence.
     fn oneofs(
         &self,
         idx: MessageIndex,
         message: &MessageDescriptor,
-        fields: &[Result<FieldValidator<R>, String>],
-    ) -> Vec<OneofValidator<R>> {
+        fields: &[Result<PendingField<R>, String>],
+    ) -> Vec<PendingOneof<R>> {
         let mut oneofs = Vec::new();
         for (index, oneof) in message.oneofs().iter().enumerate() {
             if oneof.is_synthetic() {
@@ -645,27 +627,25 @@ impl<'a, R: Runtime> Builder<'a, R> {
                 .is_some_and(|rules| rules.required.unwrap_or(false))
                 .then(|| descriptors::oneof_path_element(oneof.name()));
             let mut members = Vec::new();
-            let mut validators = Vec::new();
+            let mut validated = Vec::new();
             for field in oneof
                 .field_indices()
                 .iter()
                 .filter_map(|&index| message.fields().get(usize::from(index)))
             {
-                let validator = fields.iter().position(|validator| {
+                members.push(self.field(idx, field));
+                validated.extend(fields.iter().position(|validator| {
                     validator.as_ref().is_ok_and(|validator| {
                         validator.field.number() == field.number() && !validator.required
                     })
-                });
-                members.push(self.field(idx, field));
-                validators.push(validator);
+                }));
             }
-            if required.is_some() || validators.iter().any(Option::is_some) {
+            if required.is_some() || !validated.is_empty() {
                 let index = u32::try_from(index).expect("a message has fewer than 2^32 oneofs");
-                oneofs.push(OneofValidator {
+                oneofs.push(PendingOneof {
                     oneof: Oneof::new(oneof.name().to_owned(), index, members),
                     required,
-                    validators,
-                    by_number: Box::default(),
+                    members: validated,
                 });
             }
         }
@@ -723,7 +703,7 @@ impl<'a, R: Runtime> Builder<'a, R> {
         message: &MessageDescriptor,
         field: &FieldDescriptor,
         rules: FieldRules,
-    ) -> Result<Option<FieldValidator<R>>, String> {
+    ) -> Result<Option<PendingField<R>>, String> {
         if rules.ignore == Some(Ignore::IGNORE_ALWAYS) {
             return Ok(None);
         }
@@ -732,14 +712,13 @@ impl<'a, R: Runtime> Builder<'a, R> {
         let ignore_empty = target.ignore_empty(rules.ignore);
         let (value, remaining) = self.build_value(&target, rules, &[])?;
         let kind = self.build_kind(field, &target, remaining)?;
-        Ok(Some(FieldValidator {
+        Ok(Some(PendingField {
             field: self.field(idx, field),
             element: descriptors::path_element(field),
             required,
             ignore_empty,
             value,
             kind,
-            plan: Plan::Generic,
         }))
     }
 

@@ -22,7 +22,6 @@
 
 use std::borrow::Cow;
 use std::cell::OnceCell;
-use std::marker::PhantomData;
 use std::ops::ControlFlow;
 
 use buffa_descriptor::{DescriptorPool, MessageIndex};
@@ -39,7 +38,7 @@ use crate::Error;
 use crate::cel::{self, Env, Frame, ScalarValue, This, Value};
 use crate::descriptors::{self, Descriptors, Schema};
 use crate::protobuf::{
-    Field, Key, Kind, List as _, Map as _, Message as _, Runtime, Scalar, Singular, Val, kind, read,
+    Field, Key, Kind, List as _, Map as _, Message as _, Runtime, Scalar, Singular, Val, read,
 };
 use crate::validate::__buffa::oneof::field_path_element::Subscript;
 use crate::validate::{FieldPath, FieldPathElement, Violation};
@@ -175,7 +174,6 @@ pub(crate) struct Walk<'a, R: Runtime> {
     env: &'a Env,
     validators: &'a ValidatorCache<R>,
     out: Violations,
-    runtime: PhantomData<R>,
 }
 
 impl<'a, R: Runtime> Walk<'a, R> {
@@ -191,7 +189,6 @@ impl<'a, R: Runtime> Walk<'a, R> {
             env,
             validators,
             out: Violations::new(fail_fast),
-            runtime: PhantomData,
         }
     }
 
@@ -337,10 +334,10 @@ impl<R: Runtime> MessageValidator<R> {
             oneof.check(walk, message)?;
         }
         for oneof in &self.oneofs {
-            oneof.validate(walk, message, frame, &self.fields)?;
+            oneof.validate(walk, message, frame)?;
         }
-        for &position in &self.plain {
-            let field = self.fields[position as usize]
+        for field in &self.fields {
+            let field = field
                 .as_ref()
                 .map_err(|error| Error::Compilation(error.clone()))?;
             field.validate(walk, message, frame, None)?;
@@ -413,18 +410,13 @@ impl<R: Runtime> OneofValidator<R> {
         walk: &mut Walk<'a, R>,
         message: &R::Message<'_>,
         frame: &CelFrame<'_, '_, R>,
-        fields: &'a [Result<FieldValidator<R>, String>],
     ) -> Result<(), Abort<R::Error>> {
         if let Some(number) = message.which_oneof(&self.oneof).read()? {
             // A member that the validator does not know of has no rules.
-            let Some(&(_, position)) = self.by_number.iter().find(|(member, _)| *member == number)
-            else {
-                return Ok(());
+            return match self.members.iter().find(|(member, _)| *member == number) {
+                Some((_, field)) => field.validate(walk, message, frame, Some(true)),
+                None => Ok(()),
             };
-            let Ok(field) = &fields[position as usize] else {
-                unreachable!("a oneof only validates members whose rules compiled");
-            };
-            return field.validate(walk, message, frame, Some(true));
         }
         let Some(element) = &self.required else {
             return Ok(());
@@ -440,87 +432,86 @@ impl<R: Runtime> OneofValidator<R> {
 }
 
 impl<R: Runtime> FieldValidator<R> {
-    /// Validates a [`Plan::Scalar`] field, reading its value with
-    /// [`Message::get`](crate::protobuf::Message::get) rather than as a
-    /// [`Val`]. Returns `None` if the field's checks do not match its kind.
-    /// The caller then reads the field as a [`Val`], and reports the
-    /// mismatch.
+    /// Validates a [`Plan::Scalar`] field, reading its value with the
+    /// [`Message`](crate::protobuf::Message) method for its kind rather than
+    /// as a [`Val`].
     fn validate_scalar<'a>(
         &'a self,
         walk: &mut Walk<'a, R>,
         message: &R::Message<'_>,
         present: Option<bool>,
-    ) -> Option<Result<(), Abort<R::Error>>> {
-        let Kind::Singular(singular) = self.field.kind() else {
-            return None;
-        };
+    ) -> Result<(), Abort<R::Error>> {
         let value = &self.value;
         let field = &self.field;
-        Some(match (&value.checks, singular) {
-            (Checks::Bool(checks), Singular::Scalar(Scalar::Bool)) => self.scalar(
+        match (&value.checks, field.kind()) {
+            (Checks::Bool(checks), Kind::Singular(Singular::Scalar(Scalar::Bool))) => self.scalar(
                 walk,
                 present,
-                || message.get::<kind::Bool>(field),
+                || message.get_bool(field),
                 |value| *value,
                 |out, value| run(checks, value, out),
             ),
             (
                 Checks::Int(checks),
-                Singular::Scalar(
+                Kind::Singular(Singular::Scalar(
                     Scalar::Int32
                     | Scalar::Int64
                     | Scalar::Sint32
                     | Scalar::Sint64
                     | Scalar::Sfixed32
                     | Scalar::Sfixed64,
-                ),
+                )),
             ) => self.scalar(
                 walk,
                 present,
-                || message.get::<kind::Int>(field),
+                || message.get_int(field),
                 |value| *value != 0,
                 |out, value| run(checks, value, out),
             ),
             (
                 Checks::Uint(checks),
-                Singular::Scalar(
+                Kind::Singular(Singular::Scalar(
                     Scalar::Uint32 | Scalar::Uint64 | Scalar::Fixed32 | Scalar::Fixed64,
-                ),
+                )),
             ) => self.scalar(
                 walk,
                 present,
-                || message.get::<kind::Uint>(field),
+                || message.get_uint(field),
                 |value| *value != 0,
                 |out, value| run(checks, value, out),
             ),
-            (Checks::Double(checks), Singular::Scalar(Scalar::Float | Scalar::Double)) => self
+            (
+                Checks::Double(checks),
+                Kind::Singular(Singular::Scalar(Scalar::Float | Scalar::Double)),
+            ) => self.scalar(
+                walk,
+                present,
+                || message.get_double(field),
+                |value| value.to_bits() != 0,
+                |out, value| run(checks, value, out),
+            ),
+            (Checks::String(checks), Kind::Singular(Singular::Scalar(Scalar::String))) => self
                 .scalar(
                     walk,
                     present,
-                    || message.get::<kind::Double>(field),
-                    |value| value.to_bits() != 0,
-                    |out, value| run(checks, value, out),
+                    || message.get_str(field),
+                    |value| !value.is_empty(),
+                    |out, value| run(checks, &**value, out),
                 ),
-            (Checks::String(checks), Singular::Scalar(Scalar::String)) => self.scalar(
-                walk,
-                present,
-                || message.get::<kind::Str>(field),
-                |value| !value.is_empty(),
-                |out, value| run(checks, &**value, out),
-            ),
-            (Checks::Bytes(checks), Singular::Scalar(Scalar::Bytes)) => self.scalar(
-                walk,
-                present,
-                || message.get::<kind::Bytes>(field),
-                |value| !value.is_empty(),
-                |out, value| run(checks, &**value, out),
-            ),
-            (Checks::Enum(checks), Singular::Enum) => {
+            (Checks::Bytes(checks), Kind::Singular(Singular::Scalar(Scalar::Bytes))) => self
+                .scalar(
+                    walk,
+                    present,
+                    || message.get_bytes(field),
+                    |value| !value.is_empty(),
+                    |out, value| run(checks, &**value, out),
+                ),
+            (Checks::Enum(checks), Kind::Singular(Singular::Enum)) => {
                 let pool = walk.pool;
                 self.scalar(
                     walk,
                     present,
-                    || message.get::<kind::Enum>(field),
+                    || message.get_enum(field),
                     |value| *value != 0,
                     |out, &number| {
                         run_with(checks, out, |test| {
@@ -534,8 +525,8 @@ impl<R: Runtime> FieldValidator<R> {
                     },
                 )
             }
-            _ => return None,
-        })
+            _ => unreachable!("a scalar plan is only chosen for checks of the field's kind"),
+        }
     }
 
     /// Applies the presence handling and checks of
@@ -616,7 +607,7 @@ impl<R: Runtime> FieldValidator<R> {
         }
         // A field that the runtime's message does not have holds no message
         // to validate.
-        let Some(sub) = message.get::<kind::Message>(&self.field).read()? else {
+        let Some(sub) = message.get_message(&self.field).read()? else {
             return Ok(());
         };
         let Some(nested) = self.value.nested else {
@@ -655,10 +646,8 @@ impl<R: Runtime> FieldValidator<R> {
             None if self.field.has_presence() => Some(message.has(&self.field).read()?),
             None => None,
         };
-        if self.plan == Plan::Scalar
-            && let Some(result) = self.validate_scalar(walk, message, present)
-        {
-            return result;
+        if self.plan == Plan::Scalar {
+            return self.validate_scalar(walk, message, present);
         }
         // An unset field whose value would not be used is not read. In
         // particular, this skips unset oneof members and message fields.
@@ -854,7 +843,7 @@ impl<R: Runtime> ValueValidator<R> {
         };
         let child = nested.as_ref().map(|(_, child)| child);
 
-        if self.reads_value {
+        if self.reads_value() {
             if let Some(custom) = &self.custom {
                 custom.run(cel_this(value, bind, child)?, &mut walk.out)?;
             }

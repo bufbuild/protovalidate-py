@@ -341,9 +341,8 @@ impl<R: Runtime> Validator<R> {
         match self.validators.get(index)? {
             Err(error) => Some(error.clone()),
             Ok(validator) => validator
-                .fields
-                .iter()
-                .find_map(|field| field.as_ref().err().cloned()),
+                .field_validators()
+                .find_map(|field| field.err().cloned()),
         }
     }
 
@@ -361,14 +360,14 @@ impl<R: Runtime> Validator<R> {
                 Err(error) => Some(error),
                 Ok(validator) => {
                     let mut error = None;
-                    for field in &validator.fields {
+                    for field in validator.field_validators() {
                         match field {
                             Err(field_error) => {
                                 error = Some(field_error);
                                 break;
                             }
                             Ok(field) => {
-                                pending.extend(build::nested_type(field).map(|n| n.validator));
+                                pending.extend(field.nested_type().map(|nested| nested.validator));
                             }
                         }
                     }
@@ -858,9 +857,7 @@ mod tests {
         use std::convert::Infallible;
         use std::ops::ControlFlow;
 
-        use crate::protobuf::{
-            Field, List, Map, Message, Oneof, Reader, Resolver, Runtime, Val, ValueKind,
-        };
+        use crate::protobuf::{Field, List, Map, Message, Oneof, Reader, Resolver, Runtime, Val};
 
         /// A field number that no oneof member in the schema has.
         pub(super) const UNKNOWN_MEMBER: u32 = 99;
@@ -928,12 +925,7 @@ mod tests {
                 Ok(self.0.set)
             }
 
-            fn get<'f, K: ValueKind<Probe>>(
-                &'f self,
-                field: &'f Field<Probe>,
-            ) -> Result<Option<K::Value<'f>>, Infallible> {
-                panic!("field {} is read", field.name())
-            }
+            crate::protobuf::testing::unread_fields!(Probe);
 
             fn which_oneof(&self, oneof: &Oneof<Probe>) -> Result<Option<u32>, Infallible> {
                 self.0.oneof_calls.set(self.0.oneof_calls.get() + 1);
@@ -1063,38 +1055,37 @@ mod tests {
         };
         assert_eq!(plans("test.Inner"), [Plan::Scalar]);
         assert_eq!(plans("test.Outer"), [Plan::Message]);
-        assert_eq!(plans("test.Holder"), [Plan::Presence]);
-        assert_eq!(plans("test.Nest"), [Plan::Generic, Plan::Generic]);
-
         assert_eq!(
-            &*compiled("test.Holder").plain,
-            [0],
+            plans("test.Holder"),
+            [Plan::Presence],
             "a required field is checked"
         );
-        assert_eq!(&*compiled("test.Nest").plain, [0, 1]);
+        assert_eq!(plans("test.Nest"), [Plan::Generic, Plan::Generic]);
+
         let choice = compiled("test.Choice");
         assert!(
-            choice.plain.is_empty(),
+            choice.fields.is_empty(),
             "members are validated through the oneof"
         );
-        assert_eq!(&*choice.oneofs[0].by_number, [(1, 0), (2, 1)]);
+        let members: Vec<u32> = choice.oneofs[0]
+            .members
+            .iter()
+            .map(|(number, _)| *number)
+            .collect();
+        assert_eq!(members, [1, 2]);
         let idle = compiled("test.Idle");
         assert!(
             idle.oneofs.is_empty(),
             "a oneof that validates nothing is dropped"
         );
         assert!(
-            idle.plain.is_empty(),
+            idle.fields.is_empty(),
             "members without rules are not validated"
         );
         for type_name in ["test.Bag", "test.Bagged"] {
             assert!(
                 compiled(type_name).is_empty(),
                 "{type_name} only holds messages without rules"
-            );
-            assert!(
-                compiled(type_name).plain.is_empty(),
-                "{type_name} validates nothing"
             );
         }
     }
@@ -1107,9 +1098,7 @@ mod tests {
         use std::cell::Cell;
         use std::ops::ControlFlow;
 
-        use crate::protobuf::{
-            Field, Key, List, Map, Message, Reader, Resolver, Runtime, Val, ValueKind, ValueKindId,
-        };
+        use crate::protobuf::{Field, Key, List, Map, Message, Reader, Resolver, Runtime, Val};
 
         pub(super) struct Keys {
             valid: bool,
@@ -1168,19 +1157,56 @@ mod tests {
             fn has(&self, _field: &Field<Keys>) -> Result<bool, String> {
                 Ok(false)
             }
-            fn get<'f, K: ValueKind<Keys>>(
+            fn get_bool(&self, field: &Field<Keys>) -> Result<Option<bool>, String> {
+                unread(field)
+            }
+            fn get_int(&self, field: &Field<Keys>) -> Result<Option<i64>, String> {
+                unread(field)
+            }
+            fn get_uint(&self, field: &Field<Keys>) -> Result<Option<u64>, String> {
+                unread(field)
+            }
+            fn get_double(&self, field: &Field<Keys>) -> Result<Option<f64>, String> {
+                unread(field)
+            }
+            fn get_enum(&self, field: &Field<Keys>) -> Result<Option<i32>, String> {
+                unread(field)
+            }
+            fn get_str<'f>(
                 &'f self,
                 field: &'f Field<Keys>,
-            ) -> Result<Option<K::Value<'f>>, String> {
-                let value = match (K::ID, self) {
-                    (ValueKindId::Str, Self::Inner(keys)) => {
-                        Val::String(Cow::Borrowed(if keys.valid { "a" } else { "" }))
-                    }
-                    (ValueKindId::List, _) => Val::List(Entries(None)),
-                    (ValueKindId::Map, Self::Nest(keys)) => Val::Map(Entries(Some(keys))),
-                    _ => return unread(field),
-                };
-                Ok(K::from_val(value))
+            ) -> Result<Option<Cow<'f, str>>, String> {
+                match self {
+                    Self::Inner(keys) => Ok(Some(Cow::Borrowed(if keys.valid { "a" } else { "" }))),
+                    Self::Nest(_) => unread(field),
+                }
+            }
+            fn get_bytes<'f>(
+                &'f self,
+                field: &'f Field<Keys>,
+            ) -> Result<Option<Cow<'f, [u8]>>, String> {
+                unread(field)
+            }
+            fn get_message<'f>(
+                &'f self,
+                field: &'f Field<Keys>,
+            ) -> Result<Option<KeysMessage<'f>>, String> {
+                unread(field)
+            }
+            fn get_list<'f>(
+                &'f self,
+                _field: &'f Field<Keys>,
+            ) -> Result<Option<Entries<'f>>, String> {
+                Ok(Some(Entries(None)))
+            }
+            fn get_map<'f>(
+                &'f self,
+                field: &'f Field<Keys>,
+            ) -> Result<Option<Entries<'f>>, String> {
+                match self {
+                    Self::Nest(keys) => Ok(Some(Entries(Some(keys)))),
+                    Self::Inner(_) => unread(field),
+                }
             }
             #[expect(unreachable_code, reason = "the hidden type must be named")]
             fn encode(&self) -> Result<impl AsRef<[u8]>, String> {
