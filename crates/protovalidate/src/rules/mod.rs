@@ -151,13 +151,20 @@ pub(crate) struct MessageValidator<R: Runtime> {
     pub message_type: R::MessageType,
     pub cel: Option<CelPrograms>,
     pub message_oneofs: Vec<MessageOneof<R>>,
-    /// The oneofs whose set member is looked up once and is the only member
+    /// The fields and oneofs to validate, in declaration order, or why a
+    /// field's rules did not compile. A field whose rules do nothing is
+    /// left out. A field that its oneof validates has no step of its own.
+    /// The oneof's step is where its first member is declared.
+    pub steps: Vec<Result<Step<R>, String>>,
+}
+
+/// One step of validating a message.
+pub(crate) enum Step<R: Runtime> {
+    /// A field that is validated on its own.
+    Field(FieldValidator<R>),
+    /// A oneof. It is asked which member is set, and only that member is
     /// validated.
-    pub oneofs: Vec<OneofValidator<R>>,
-    /// The fields validated on their own, or why a field's rules did not
-    /// compile. A field whose rules do nothing is left out, and a field
-    /// validated through its oneof is in `oneofs`.
-    pub fields: Vec<Result<FieldValidator<R>, String>>,
+    Oneof(OneofValidator<R>),
 }
 
 /// A `(buf.validate.message).oneof` rule.
@@ -383,10 +390,7 @@ impl<R: Runtime> FieldValidator<R> {
 impl<R: Runtime> MessageValidator<R> {
     /// Whether validating a message of this type does nothing.
     pub(crate) fn is_empty(&self) -> bool {
-        self.cel.is_none()
-            && self.message_oneofs.is_empty()
-            && self.oneofs.is_empty()
-            && self.fields.is_empty()
+        self.cel.is_none() && self.message_oneofs.is_empty() && self.steps.is_empty()
     }
 
     /// Every field validator, whether the field is validated on its own or
@@ -394,10 +398,14 @@ impl<R: Runtime> MessageValidator<R> {
     pub(crate) fn field_validators(
         &self,
     ) -> impl Iterator<Item = Result<&FieldValidator<R>, &String>> {
-        let members = self
-            .oneofs
-            .iter()
-            .flat_map(|oneof| oneof.members.iter().map(|(_, field)| Ok(field)));
-        self.fields.iter().map(Result::as_ref).chain(members)
+        self.steps.iter().flat_map(|step| {
+            let (own, members) = match step {
+                Ok(Step::Field(field)) => (Some(Ok(field)), &[][..]),
+                Ok(Step::Oneof(oneof)) => (None, oneof.members.as_slice()),
+                Err(error) => (Some(Err(error)), &[][..]),
+            };
+            own.into_iter()
+                .chain(members.iter().map(|(_, field)| Ok(field)))
+        })
     }
 }

@@ -564,7 +564,9 @@ impl<'a, R: Runtime> Builder<'a, R> {
         };
 
         let mut fields = Vec::new();
-        for field in message.fields() {
+        // The declaration index of each field in `fields`.
+        let mut declared = Vec::new();
+        for (declaration, field) in message.fields().iter().enumerate() {
             let rules = descriptors::field_rules(field);
             // A message-typed field runs its own rules and that of the message type itself.
             if rules.is_none() && descriptors::message_type(field).is_none() {
@@ -578,10 +580,11 @@ impl<'a, R: Runtime> Builder<'a, R> {
             }
             if let Some(validator) = self.build_field(idx, message, field, rules).transpose() {
                 fields.push(validator);
+                declared.push(declaration);
             }
         }
 
-        let oneofs = self.oneofs(idx, message, &fields);
+        let oneofs = self.oneofs(idx, message, &fields, &declared);
         Ok(PendingValidator {
             message_type: self.resolved(idx).message_type.clone(),
             cel,
@@ -595,18 +598,26 @@ impl<'a, R: Runtime> Builder<'a, R> {
     /// with the positions in `fields` of the members each validates. A
     /// member that its own rules require, or whose rules did not compile,
     /// is validated as a field instead, as is the field of a synthetic
-    /// oneof, which tracks its own presence.
+    /// oneof, which tracks its own presence. `declared` is the declaration
+    /// index of each field in `fields`.
     fn oneofs(
         &self,
         idx: MessageIndex,
         message: &MessageDescriptor,
         fields: &[Result<PendingField<R>, String>],
+        declared: &[usize],
     ) -> Vec<PendingOneof<R>> {
         let mut oneofs = Vec::new();
         for (index, oneof) in message.oneofs().iter().enumerate() {
             if oneof.is_synthetic() {
                 continue;
             }
+            let Some(first) = oneof.field_indices().iter().copied().min() else {
+                continue;
+            };
+            // The oneof is validated after the fields with rules declared
+            // before its first member.
+            let position = declared.partition_point(|&field| field < usize::from(first));
             let required = descriptors::oneof_rules(oneof)
                 .is_some_and(|rules| rules.required.unwrap_or(false))
                 .then(|| descriptors::oneof_path_element(oneof.name()));
@@ -630,6 +641,7 @@ impl<'a, R: Runtime> Builder<'a, R> {
                     oneof: Oneof::new(oneof.name().to_owned(), index, members),
                     required,
                     members: validated,
+                    position,
                 });
             }
         }
@@ -1147,7 +1159,7 @@ mod tests {
     use crate::cel::{ScalarValue, This, Value};
     use crate::descriptors::{self, Descriptors};
     use crate::protobuf::testing::Untyped;
-    use crate::rules::{FieldValidator, NativeChecks, ValidatorCache};
+    use crate::rules::{FieldValidator, NativeChecks, Step, ValidatorCache};
     use crate::validate::__buffa::oneof::field_rules::Type as RulesType;
     use crate::validate::{FIELD, FieldRules, PREDEFINED, PredefinedRules, Rule, StringRules};
     use crate::validator::cel_env;
@@ -1240,8 +1252,7 @@ mod tests {
             .expect("the message is compiled")
             .as_ref()
             .expect("the message compiles");
-        let field = validator.fields[0].as_ref().expect("the field compiles");
-        let FieldValidator::Value(_, value, _) = field else {
+        let Ok(Step::Field(FieldValidator::Value(_, value, _))) = &validator.steps[0] else {
             panic!("a field with a predefined rule is validated through its value");
         };
         assert!(

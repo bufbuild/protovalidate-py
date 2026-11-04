@@ -25,8 +25,8 @@ use std::collections::HashSet;
 
 use super::{
     CelPrograms, FieldHeader, FieldKind, FieldValidator, ItemValidator, MessageOneof,
-    MessageValidator, NativeChecks, OneofValidator, ValidatorIndex, ValueValidator, nested_type,
-    scalar_checks,
+    MessageValidator, NativeChecks, OneofValidator, Step, ValidatorIndex, ValueValidator,
+    nested_type, scalar_checks,
 };
 use crate::protobuf::{Field, Kind, Oneof, Runtime, Singular};
 use crate::validate::FieldPathElement;
@@ -53,6 +53,10 @@ pub(crate) struct PendingOneof<R: Runtime> {
     /// the oneof validates, if their rules still compile and do something
     /// once the validator is finalized.
     pub members: Vec<usize>,
+    /// The position in [`PendingValidator::fields`] at which the oneof is
+    /// validated. It is the number of those fields that are declared before
+    /// the oneof's first member.
+    pub position: usize,
 }
 
 /// The rules of one field of a [`PendingValidator`].
@@ -173,9 +177,11 @@ impl<R: Runtime> PendingValidator<R> {
     /// change, which is after the errors of nested types are propagated and
     /// the nested types whose rules do nothing are pruned.
     ///
-    /// A oneof takes the members it validates out of the fields. A member
-    /// whose rules did not compile stays a field, so that the error is
-    /// reported. A field whose rules do nothing is dropped.
+    /// A oneof takes the members it validates out of the fields, and is
+    /// validated where its first member is declared, so that violations are
+    /// reported in declaration order. A member whose rules did not compile
+    /// stays a field, so that the error is reported. A field whose rules do
+    /// nothing is dropped.
     pub(crate) fn finalize(self) -> MessageValidator<R> {
         let Self {
             message_type,
@@ -186,6 +192,7 @@ impl<R: Runtime> PendingValidator<R> {
         } = self;
         let mut fields: Vec<Option<Result<PendingField<R>, String>>> =
             fields.into_iter().map(Some).collect();
+        // The oneofs to validate, each with its position in `fields`.
         let mut validators = Vec::new();
         for oneof in oneofs {
             let mut members = Vec::new();
@@ -197,28 +204,32 @@ impl<R: Runtime> PendingValidator<R> {
                 }
             }
             if oneof.required.is_some() || !members.is_empty() {
-                validators.push(OneofValidator {
+                let validator = OneofValidator {
                     oneof: oneof.oneof,
                     required: oneof.required,
                     members,
-                });
+                };
+                validators.push((oneof.position, validator));
             }
         }
-        let fields = fields
+        let mut steps: Vec<Option<Result<Step<R>, String>>> = fields
             .into_iter()
-            .flatten()
-            .filter_map(|field| match field {
+            .map(|field| match field? {
                 Ok(field) if field.does_nothing() => None,
-                Ok(field) => Some(Ok(field.finalize())),
+                Ok(field) => Some(Ok(Step::Field(field.finalize()))),
                 Err(error) => Some(Err(error)),
             })
             .collect();
+        // Inserting the last oneof first keeps the positions of the others
+        // valid, and keeps oneofs at the same position in declaration order.
+        for (position, validator) in validators.into_iter().rev() {
+            steps.insert(position, Some(Ok(Step::Oneof(validator))));
+        }
         MessageValidator {
             message_type,
             cel,
             message_oneofs,
-            oneofs: validators,
-            fields,
+            steps: steps.into_iter().flatten().collect(),
         }
     }
 }

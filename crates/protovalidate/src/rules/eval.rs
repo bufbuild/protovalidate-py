@@ -32,7 +32,8 @@ use super::standard::{
 };
 use super::{
     CelPrograms, FieldHeader, FieldKind, FieldValidator, ItemValidator, MessageOneof,
-    MessageValidator, NativeChecks, OneofValidator, ValidatorCache, ValidatorIndex, ValueValidator,
+    MessageValidator, NativeChecks, OneofValidator, Step, ValidatorCache, ValidatorIndex,
+    ValueValidator,
 };
 use crate::Error;
 use crate::cel::{self, Env, Frame, ScalarValue, This, Value};
@@ -336,14 +337,14 @@ impl<R: Runtime> MessageValidator<R> {
         for oneof in &self.message_oneofs {
             oneof.check(walk, message)?;
         }
-        for oneof in &self.oneofs {
-            oneof.validate(walk, message, frame)?;
-        }
-        for field in &self.fields {
-            let field = field
+        for step in &self.steps {
+            match step
                 .as_ref()
-                .map_err(|error| Error::Compilation(error.clone()))?;
-            field.validate(walk, message, frame, None)?;
+                .map_err(|error| Error::Compilation(error.clone()))?
+            {
+                Step::Field(field) => field.validate(walk, message, frame, None)?,
+                Step::Oneof(oneof) => oneof.validate(walk, message, frame)?,
+            }
         }
         Ok(())
     }

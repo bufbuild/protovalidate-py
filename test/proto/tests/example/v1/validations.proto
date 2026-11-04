@@ -50,6 +50,26 @@ message Oneof {
   }
 }
 
+// Violations are reported in declaration order, with a oneof's member
+// where the member is declared.
+message OneofOrder {
+  string first = 1 [(buf.validate.field).string.min_len = 1];
+  oneof o {
+    string member = 2 [(buf.validate.field).string.min_len = 1];
+  }
+  string last = 3 [(buf.validate.field).string.min_len = 1];
+}
+
+// A required oneof is checked where it is declared, as its members are.
+message OneofRequiredOrder {
+  string first = 1 [(buf.validate.field).string.min_len = 1];
+  oneof o {
+    option (buf.validate.oneof).required = true;
+
+    string member = 2 [(buf.validate.field).string.min_len = 1];
+  }
+}
+
 message ProtovalidateOneof {
   string a = 1;
   string b = 2;

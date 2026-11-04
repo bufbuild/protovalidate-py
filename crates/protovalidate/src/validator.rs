@@ -1017,7 +1017,7 @@ mod tests {
 
     #[test]
     fn fields_are_shaped_by_what_reads_them() {
-        use crate::rules::FieldValidator;
+        use crate::rules::{FieldValidator, Step};
 
         let mut validator = Validator::<probe::Probe>::new();
         validator
@@ -1048,13 +1048,14 @@ mod tests {
         };
         let shapes = |type_name: &str| {
             compiled(type_name)
-                .fields
+                .steps
                 .iter()
-                .map(|field| match field.as_ref().expect("the field compiles") {
-                    FieldValidator::Presence(_) => "presence",
-                    FieldValidator::Scalar(..) => "scalar",
-                    FieldValidator::Message(..) => "message",
-                    FieldValidator::Value(..) => "value",
+                .map(|step| match step.as_ref().expect("the field compiles") {
+                    Step::Field(FieldValidator::Presence(_)) => "presence",
+                    Step::Field(FieldValidator::Scalar(..)) => "scalar",
+                    Step::Field(FieldValidator::Message(..)) => "message",
+                    Step::Field(FieldValidator::Value(..)) => "value",
+                    Step::Oneof(_) => "oneof",
                 })
                 .collect::<Vec<_>>()
         };
@@ -1067,25 +1068,22 @@ mod tests {
         );
         assert_eq!(shapes("test.Nest"), ["value", "value"]);
 
-        let choice = compiled("test.Choice");
-        assert!(
-            choice.fields.is_empty(),
+        assert_eq!(
+            shapes("test.Choice"),
+            ["oneof"],
             "members are validated through the oneof"
         );
-        let members: Vec<u32> = choice.oneofs[0]
-            .members
-            .iter()
-            .map(|(number, _)| *number)
-            .collect();
+        let choice = compiled("test.Choice");
+        let Ok(Step::Oneof(oneof)) = &choice.steps[0] else {
+            unreachable!("the step is the oneof");
+        };
+        let members: Vec<u32> = oneof.members.iter().map(|(number, _)| *number).collect();
         assert_eq!(members, [1, 2]);
+        assert!(oneof.required.is_some(), "the oneof is required");
         let idle = compiled("test.Idle");
         assert!(
-            idle.oneofs.is_empty(),
+            idle.steps.is_empty(),
             "a oneof that validates nothing is dropped"
-        );
-        assert!(
-            idle.fields.is_empty(),
-            "members without rules are not validated"
         );
         for type_name in ["test.Bag", "test.Bagged"] {
             assert!(
@@ -1344,6 +1342,7 @@ mod tests {
     #[test]
     fn oneof_defaults_to_checking_members() {
         use crate::protobuf::{Field, Reader as _, which_oneof_by_has};
+        use crate::rules::Step;
 
         let mut validator = Validator::<probe::Probe>::new();
         validator
@@ -1354,14 +1353,16 @@ mod tests {
             .compile("test.Choice", &unset)
             .expect("the rules compile");
         let message = validator.message_index("test.Choice").expect("registered");
-        let oneof = &validator
+        let compiled = validator
             .validators
             .get(message)
             .expect("compiled")
             .as_ref()
-            .expect("the rules compile")
-            .oneofs[0]
-            .oneof;
+            .expect("the rules compile");
+        let Ok(Step::Oneof(step)) = &compiled.steps[0] else {
+            unreachable!("the step is the oneof");
+        };
+        let oneof = &step.oneof;
         assert_eq!(oneof.name(), "kind");
         assert_eq!(
             oneof
