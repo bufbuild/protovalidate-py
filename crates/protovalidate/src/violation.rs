@@ -15,15 +15,15 @@
 use std::fmt::{self, Write as _};
 use std::sync::OnceLock;
 
-use crate::pb::buffa::{FieldPath, Subscript, Violation as ViolationPb};
+use crate::validate::__buffa::oneof::field_path_element::Subscript;
+use crate::validate::{FieldPath, Violation as ViolationPb};
 
 /// A single rule violation, together with its Protobuf form.
 #[derive(Clone, Debug)]
-pub struct Violation {
+pub(crate) struct Violation {
     proto: ViolationPb,
     /// Rendered on first use.
     field_path: OnceLock<String>,
-    rule_path: OnceLock<String>,
 }
 
 impl PartialEq for Violation {
@@ -36,50 +36,31 @@ impl Violation {
     pub(crate) fn new(proto: ViolationPb) -> Self {
         Self {
             field_path: OnceLock::new(),
-            rule_path: OnceLock::new(),
             proto,
         }
     }
 
     /// The id of the rule that failed, such as `string.email`, or the `id` of
     /// a custom CEL rule.
-    #[must_use]
-    pub fn rule_id(&self) -> &str {
+    pub(crate) fn rule_id(&self) -> &str {
         self.proto.rule_id.as_deref().unwrap_or_default()
     }
 
     /// The human-readable message describing the failure.
-    #[must_use]
-    pub fn message(&self) -> &str {
+    pub(crate) fn message(&self) -> &str {
         self.proto.message.as_deref().unwrap_or_default()
-    }
-
-    /// Whether the violation is about a map key rather than its value.
-    #[must_use]
-    pub fn for_key(&self) -> bool {
-        self.proto.for_key.unwrap_or_default()
     }
 
     /// The path to the field that failed, such as `user.emails[0]`.
     ///
     /// It is empty for a message-level rule, which does not apply to a field.
-    #[must_use]
-    pub fn field_path(&self) -> &str {
+    pub(crate) fn field_path(&self) -> &str {
         self.field_path
             .get_or_init(|| path_string(self.proto.field.as_option()))
     }
 
-    /// The path to the rule that failed, relative to the rules of the field
-    /// that [`field_path`](Self::field_path) names.
-    #[must_use]
-    pub fn rule_path(&self) -> &str {
-        self.rule_path
-            .get_or_init(|| path_string(self.proto.rule.as_option()))
-    }
-
     /// The violation as a `buf.validate.Violation`.
-    #[must_use]
-    pub fn proto(&self) -> &ViolationPb {
+    pub(crate) fn proto(&self) -> &ViolationPb {
         &self.proto
     }
 }
@@ -147,7 +128,8 @@ fn path_string(path: Option<&FieldPath>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{Violation, ViolationPb};
-    use crate::pb::buffa::{FieldPath, FieldPathElement, Subscript};
+    use crate::validate::__buffa::oneof::field_path_element::Subscript;
+    use crate::validate::{FieldPath, FieldPathElement};
 
     fn element(name: &str, subscript: Option<Subscript>) -> FieldPathElement {
         FieldPathElement {

@@ -102,8 +102,9 @@ struct KnownType {
 
 /// The core validator and registration state for one Python runtime.
 struct Engine {
-    /// Adding descriptors needs exclusive access and happens only while
-    /// warming up; a `RwLock` leaves the steady state unblocked.
+    /// Adding descriptors and compiling rules need exclusive access and
+    /// happen only while warming up the app. A `RwLock` leaves the steady state
+    /// unblocked.
     core: RwLock<Core>,
     /// Descriptor files already added to the pool, by name. Mutated together
     /// with the core, under both write locks; see `register`.
@@ -304,7 +305,7 @@ impl Validator {
     ) -> PyResult<Bound<'py, PyList>> {
         violation::build_violations(
             py,
-            &invalid.error.encode(),
+            &invalid.error.encode_violations(),
             &message.0,
             &invalid.adapter,
             self.constants,

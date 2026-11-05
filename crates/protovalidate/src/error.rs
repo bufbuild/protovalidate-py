@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::convert::Infallible;
 use std::fmt;
 
 use buffa::Message as _;
 
-use crate::Violation;
 use crate::validate::{Violation as ViolationPb, Violations};
+use crate::violation::Violation;
 
 /// A descriptor that could not be registered.
 #[derive(Debug)]
@@ -49,13 +48,11 @@ impl std::error::Error for DescriptorError {}
 /// [`Runtime::Error`](crate::protobuf::Runtime::Error).
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum Error<E = Infallible> {
+pub enum Error<E> {
     /// The message broke one or more of its rules.
     Validation(ValidationError),
     /// The runtime could not read the message.
     Read(E),
-    /// A descriptor could not be registered.
-    Descriptor(DescriptorError),
     /// Validation rules could not be compiled.
     Compilation(String),
     /// A rule failed while being evaluated.
@@ -71,7 +68,6 @@ impl<E: fmt::Display> fmt::Display for Error<E> {
         match self {
             Self::Validation(error) => error.fmt(f),
             Self::Read(error) => write!(f, "could not read message: {error}"),
-            Self::Descriptor(error) => error.fmt(f),
             Self::Compilation(message) => write!(f, "compilation error: {message}"),
             Self::Evaluation(message) => write!(f, "evaluation error: {message}"),
             Self::Argument(message) => write!(f, "invalid argument: {message}"),
@@ -85,15 +81,8 @@ impl<E: std::error::Error + 'static> std::error::Error for Error<E> {
         match self {
             Self::Validation(error) => Some(error),
             Self::Read(error) => Some(error),
-            Self::Descriptor(error) => Some(error),
             _ => None,
         }
-    }
-}
-
-impl<E> From<DescriptorError> for Error<E> {
-    fn from(error: DescriptorError) -> Self {
-        Self::Descriptor(error)
     }
 }
 
@@ -112,14 +101,14 @@ impl ValidationError {
     }
 
     /// The violations, in the order they were found.
-    #[must_use]
-    pub fn violations(&self) -> &[Violation] {
+    #[cfg(test)]
+    pub(crate) fn violations(&self) -> &[Violation] {
         &self.violations
     }
 
     /// Encodes the violations as a `buf.validate.Violations`.
     #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
+    pub fn encode_violations(&self) -> Vec<u8> {
         Violations {
             violations: self
                 .violations

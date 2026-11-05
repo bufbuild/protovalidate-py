@@ -84,7 +84,7 @@ impl<R: Runtime> Oneof<R> {
 /// # Errors
 ///
 /// The runtime could not tell whether a member is set.
-pub fn which_oneof_by_has<R: Runtime>(
+pub(crate) fn which_oneof_by_has<R: Runtime>(
     message: &(impl Message<R> + ?Sized),
     oneof: &Oneof<R>,
 ) -> Result<Option<u32>, R::Error> {

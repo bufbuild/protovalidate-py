@@ -67,9 +67,6 @@ pub struct Validator<R: Runtime> {
     /// that a [`CompiledType`] from another one is rejected.
     id: u64,
     descriptors: Descriptors,
-    /// The number of message types in the embedded `buf.validate` schema,
-    /// which come first in the pool.
-    base_messages: usize,
     env: cel::Env,
     validators: ValidatorCache<R>,
 }
@@ -97,7 +94,6 @@ impl<R: Runtime> Validator<R> {
         let descriptors = Descriptors::from_set(base);
         Self {
             id: NEXT_VALIDATOR_ID.fetch_add(1, Ordering::Relaxed),
-            base_messages: descriptors.pool.messages().len(),
             descriptors,
             env,
             validators: ValidatorCache::default(),
@@ -123,16 +119,13 @@ impl<R: Runtime> Validator<R> {
     }
 
     /// Registers every file in a serialized
-    /// `google.protobuf.FileDescriptorSet`, such as the output of `buf build
-    /// -o` or `protoc --descriptor_set_out`.
-    ///
-    /// Each file's imports must come before it, which both tools guarantee
-    /// when they output a complete image.
-    ///
-    /// # Errors
-    ///
-    /// Fails if the set does not parse or one of its files is invalid.
-    pub fn add_file_descriptor_set_bytes(&mut self, set: &[u8]) -> Result<(), DescriptorError> {
+    /// `google.protobuf.FileDescriptorSet`. Each file's imports must come
+    /// before it.
+    #[cfg(test)]
+    pub(crate) fn add_file_descriptor_set_bytes(
+        &mut self,
+        set: &[u8],
+    ) -> Result<(), DescriptorError> {
         let set: FileDescriptorSet = descriptors::decode(set).map_err(DescriptorError::new)?;
         self.add_file_set(set)
     }
@@ -156,70 +149,6 @@ impl<R: Runtime> Validator<R> {
             Some(error) => Err(Error::Compilation(error)),
             None => Ok(()),
         }
-    }
-
-    /// Compiles the rules of every registered message type. The types of the
-    /// embedded `buf.validate` schema and its imports are not compiled, even
-    /// if their files were registered again.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Read`] if the resolver does not know a type, or
-    /// [`Error::Compilation`], naming the types whose rules do not compile.
-    /// All other types are still compiled.
-    pub fn compile_all(&mut self, resolver: &dyn Resolver<R>) -> Result<(), Error<R::Error>> {
-        self.compile_messages(self.base_messages, resolver)
-    }
-
-    /// Compiles the rules of every message type from position `first` in the
-    /// pool, as [`compile_all`](Self::compile_all) does from the first type
-    /// after the embedded schema.
-    pub(crate) fn compile_messages(
-        &mut self,
-        first: usize,
-        resolver: &dyn Resolver<R>,
-    ) -> Result<(), Error<R::Error>> {
-        let pool = &self.descriptors.pool;
-        let pending: Vec<MessageIndex> = pool
-            .messages()
-            .iter()
-            .skip(first)
-            // A map's entry type is only ever read through its map.
-            .filter(|message| {
-                message
-                    .options()
-                    .is_none_or(|options| options.map_entry != Some(true))
-            })
-            .filter_map(|message| pool.message_index(message.full_name()))
-            .filter(|&index| !self.validators.contains(index))
-            .collect();
-        for &index in &pending {
-            self.compile_index(index, resolver).map_err(Error::Read)?;
-        }
-        let failed: Vec<String> = pending
-            .iter()
-            .filter_map(|&index| {
-                let error = self.compile_error(index)?;
-                Some(format!(
-                    "{}: {error}",
-                    self.descriptors.pool.message(index).full_name()
-                ))
-            })
-            .collect();
-        if failed.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::Compilation(failed.join("; ")))
-        }
-    }
-
-    /// Whether the rules of `type_name` are compiled.
-    #[must_use]
-    pub fn is_compiled(&self, type_name: &str) -> bool {
-        self.descriptors
-            .pool
-            .message_index(type_name)
-            .is_some_and(|index| self.validators.contains(index))
     }
 
     /// Validates a message read through `reader`.
@@ -253,9 +182,8 @@ impl<R: Runtime> Validator<R> {
     /// Returns the compiled type for `type_name`, which
     /// [`validate_compiled`](Self::validate_compiled) uses to validate
     /// without looking up the name each time. Returns `None` if its rules
-    /// are not compiled. As with [`is_compiled`](Self::is_compiled), rules that
-    /// failed to compile count as compiled, and validation reports the
-    /// error.
+    /// are not compiled. Rules that failed to compile count as compiled, and
+    /// validation reports the error.
     #[must_use]
     pub fn compiled_type(&self, type_name: &str) -> Option<CompiledType> {
         let message = self.descriptors.pool.message_index(type_name)?;
@@ -336,16 +264,6 @@ impl<R: Runtime> Validator<R> {
         Ok(())
     }
 
-    /// The reason a compiled type cannot be validated, if any.
-    fn compile_error(&self, index: MessageIndex) -> Option<String> {
-        match self.validators.get(index)? {
-            Err(error) => Some(error.clone()),
-            Ok(validator) => validator
-                .field_validators()
-                .find_map(|field| field.err().cloned()),
-        }
-    }
-
     /// Returns why the rules of `root`, or of a type that validating it can
     /// reach, do not compile. An error in another type names that type.
     fn reachable_compile_error(&self, root: MessageIndex) -> Option<String> {
@@ -421,7 +339,6 @@ mod tests {
     #[test]
     fn uncompiled_type_is_reported() {
         let validator = Validator::<Untyped>::new();
-        assert!(!validator.is_compiled("buf.validate.FieldPathElement"));
         let error = validator
             .validate_message("buf.validate.FieldPathElement", &Untyped, false)
             .expect_err("not compiled");
@@ -534,23 +451,23 @@ mod tests {
     }
 
     #[test]
-    fn compile_all_reports_what_did_not_compile() {
+    fn compile_reports_rules_that_do_not_compile() {
         let mut validator = Validator::<Untyped>::new();
         validator
             .add_file_descriptor_set_bytes(&mixed_schema())
             .expect("the schema registers");
         let error = validator
-            .compile_all(&Untyped)
+            .compile("test.Bad", &Untyped)
             .expect_err("Bad's rule does not compile");
         assert!(matches!(error, crate::Error::Compilation(_)), "{error}");
-        assert!(error.to_string().contains("test.Bad"), "{error}");
-        assert!(!error.to_string().contains("test.Good"), "{error}");
-        // The types whose rules compiled can still be used.
-        assert!(validator.is_compiled("test.Good"));
+        // The type counts as compiled, and validating it reports the error.
         let error = validator
             .validate_message("test.Bad", &Untyped, false)
             .expect_err("Bad does not validate");
         assert!(matches!(error, crate::Error::Compilation(_)), "{error}");
+        validator
+            .compile("test.Good", &Untyped)
+            .expect("Good's rules compile");
     }
 
     #[test]
@@ -568,20 +485,6 @@ mod tests {
                 .to_string()
                 .contains("test.Middle: failed to compile embedded type test.Bad"),
             "{error}"
-        );
-    }
-
-    #[test]
-    fn compile_all_skips_the_embedded_schema() {
-        let mut validator = Validator::<Untyped>::new();
-        validator
-            .add_file_descriptor_set_bytes(&read_schema())
-            .expect("the schema registers");
-        validator.compile_all(&Untyped).expect("the rules compile");
-        assert!(validator.is_compiled("test.Outer"));
-        assert!(
-            !validator.is_compiled("buf.validate.FieldRules"),
-            "the embedded schema is not compiled"
         );
     }
 
@@ -972,7 +875,10 @@ mod tests {
     }
 
     /// Validates a message of type `type_name` through `probe`.
-    fn probe(type_name: &str, probe: &probe::Probe) -> Result<(), crate::Error> {
+    fn probe(
+        type_name: &str,
+        probe: &probe::Probe,
+    ) -> Result<(), crate::Error<std::convert::Infallible>> {
         let mut validator = Validator::<probe::Probe>::new();
         validator
             .add_file_descriptor_set_bytes(&read_schema())

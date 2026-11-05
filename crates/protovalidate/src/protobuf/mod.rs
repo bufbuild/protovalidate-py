@@ -40,18 +40,8 @@ mod field;
 mod oneof;
 
 pub use field::{Field, Kind, Scalar, Singular};
-pub use oneof::{Oneof, which_oneof_by_has};
-
-/// The resolver for a runtime whose message and field types hold no data.
-impl<R: Runtime<MessageType = (), FieldType = ()>> Resolver<R> for () {
-    fn resolve(&self, _full_name: &str) -> Result<(), R::Error> {
-        Ok(())
-    }
-
-    fn resolve_field(&self, _message_type: &(), _number: u32) -> Result<(), R::Error> {
-        Ok(())
-    }
-}
+pub use oneof::Oneof;
+pub(crate) use oneof::which_oneof_by_has;
 
 /// A Protobuf runtime adapter to read from a message during validation.
 pub trait Runtime: Sized {
@@ -223,8 +213,8 @@ pub trait Message<R: Runtime> {
     /// than the validator's, is treated as a member without rules.
     ///
     /// The default implementation calls [`has`](Self::has) on each member
-    /// in turn, as [`which_oneof_by_has`] does. A runtime that tracks which
-    /// member is set should override it.
+    /// in turn. A runtime that tracks which member is set should override
+    /// it.
     ///
     /// # Errors
     ///
