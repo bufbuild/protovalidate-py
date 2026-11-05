@@ -481,17 +481,19 @@ impl<'a, R: Runtime> Builder<'a, R> {
         // rules do nothing. Skipping it can leave more types whose rules do
         // nothing, so pruning repeats until nothing changes. A type in
         // `known` never refers to one built here.
+        let known_empty: Vec<ValidatorIndex> = known
+            .iter()
+            .filter(|(_, validator)| validator.as_ref().is_ok_and(|rules| rules.is_empty()))
+            .map(|(index, _)| index)
+            .collect();
         loop {
-            let known_empty = known
-                .iter()
-                .filter(|(_, validator)| validator.as_ref().is_ok_and(|rules| rules.is_empty()))
-                .map(|(index, _)| index);
             let built_empty = built
                 .iter()
                 .enumerate()
                 .filter(|(_, validator)| validator.as_ref().is_ok_and(PendingValidator::is_empty))
                 .map(|(offset, _)| known.next_index(offset));
-            let empty: HashSet<ValidatorIndex> = known_empty.chain(built_empty).collect();
+            let empty: HashSet<ValidatorIndex> =
+                known_empty.iter().copied().chain(built_empty).collect();
             let mut changed = false;
             for validator in built.iter_mut().flatten() {
                 changed |= validator.prune(&empty);

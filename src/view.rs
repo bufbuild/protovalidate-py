@@ -330,12 +330,14 @@ impl Message<PyRuntime> for MessageView<'_> {
                 .find(|field| field.member_name().bind(self.ctx.py) == set)
                 .map(|field| field.number)
         });
-        number.map(Some).ok_or_else(|| {
-            Box::new(PyValueError::new_err(format!(
-                "oneof {} has no member {set}",
-                oneof.name()
-            )))
-        })
+        number
+            .ok_or_else(|| {
+                Box::new(PyValueError::new_err(format!(
+                    "oneof {} has no member {set}",
+                    oneof.name()
+                )))
+            })
+            .map(Some)
     }
 
     fn get_bool(&self, field: &Field<PyRuntime>) -> Result<Option<bool>, ReadError> {

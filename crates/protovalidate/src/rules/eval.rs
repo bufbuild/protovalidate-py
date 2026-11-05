@@ -485,9 +485,8 @@ impl<R: Runtime> FieldHeader<R> {
         if !self.required {
             return Ok(());
         }
-        let set = match present {
-            Some(present) => present,
-            None if self.field.has_presence() => message.has(&self.field).read()?,
+        let set = match self.presence(message, present)? {
+            Some(set) => set,
             None => is_set::<R>(read::<R>(message, &self.field).read()?.as_ref())?,
         };
         if set {
@@ -496,8 +495,9 @@ impl<R: Runtime> FieldHeader<R> {
         self.missing(walk)
     }
 
-    /// Validates a [`FieldValidator::Scalar`] field, reading its value with
-    /// the [`Message`](crate::protobuf::Message) method for its kind rather
+    /// Validates a [`FieldValidator::Scalar`] field. The kind of `checks` is
+    /// the field's kind, so the value is read with the
+    /// [`Message`](crate::protobuf::Message) method for that kind rather
     /// than as a [`Val`].
     fn validate_scalar<'a>(
         &'a self,
@@ -508,72 +508,50 @@ impl<R: Runtime> FieldHeader<R> {
     ) -> Result<(), Abort<R::Error>> {
         let present = self.presence(message, present)?;
         let field = &self.field;
-        match (checks, field.kind()) {
-            (ScalarChecks::Bool(checks), Kind::Singular(Singular::Scalar(Scalar::Bool))) => self
-                .scalar(
-                    walk,
-                    present,
-                    || message.get_bool(field),
-                    |value| *value,
-                    |out, value| run(checks, value, out),
-                ),
-            (
-                ScalarChecks::Int(checks),
-                Kind::Singular(Singular::Scalar(
-                    Scalar::Int32
-                    | Scalar::Int64
-                    | Scalar::Sint32
-                    | Scalar::Sint64
-                    | Scalar::Sfixed32
-                    | Scalar::Sfixed64,
-                )),
-            ) => self.scalar(
+        match checks {
+            ScalarChecks::Bool(checks) => self.scalar(
+                walk,
+                present,
+                || message.get_bool(field),
+                |value| *value,
+                |out, value| run(checks, value, out),
+            ),
+            ScalarChecks::Int(checks) => self.scalar(
                 walk,
                 present,
                 || message.get_int(field),
                 |value| *value != 0,
                 |out, value| run(checks, value, out),
             ),
-            (
-                ScalarChecks::Uint(checks),
-                Kind::Singular(Singular::Scalar(
-                    Scalar::Uint32 | Scalar::Uint64 | Scalar::Fixed32 | Scalar::Fixed64,
-                )),
-            ) => self.scalar(
+            ScalarChecks::Uint(checks) => self.scalar(
                 walk,
                 present,
                 || message.get_uint(field),
                 |value| *value != 0,
                 |out, value| run(checks, value, out),
             ),
-            (
-                ScalarChecks::Double(checks),
-                Kind::Singular(Singular::Scalar(Scalar::Float | Scalar::Double)),
-            ) => self.scalar(
+            ScalarChecks::Double(checks) => self.scalar(
                 walk,
                 present,
                 || message.get_double(field),
                 |value| value.to_bits() != 0,
                 |out, value| run(checks, value, out),
             ),
-            (ScalarChecks::String(checks), Kind::Singular(Singular::Scalar(Scalar::String))) => {
-                self.scalar(
-                    walk,
-                    present,
-                    || message.get_str(field),
-                    |value| !value.is_empty(),
-                    |out, value| run(checks, &**value, out),
-                )
-            }
-            (ScalarChecks::Bytes(checks), Kind::Singular(Singular::Scalar(Scalar::Bytes))) => self
-                .scalar(
-                    walk,
-                    present,
-                    || message.get_bytes(field),
-                    |value| !value.is_empty(),
-                    |out, value| run(checks, &**value, out),
-                ),
-            (ScalarChecks::Enum(checks), Kind::Singular(Singular::Enum)) => {
+            ScalarChecks::String(checks) => self.scalar(
+                walk,
+                present,
+                || message.get_str(field),
+                |value| !value.is_empty(),
+                |out, value| run(checks, &**value, out),
+            ),
+            ScalarChecks::Bytes(checks) => self.scalar(
+                walk,
+                present,
+                || message.get_bytes(field),
+                |value| !value.is_empty(),
+                |out, value| run(checks, &**value, out),
+            ),
+            ScalarChecks::Enum(checks) => {
                 let pool = walk.pool;
                 self.scalar(
                     walk,
@@ -592,7 +570,6 @@ impl<R: Runtime> FieldHeader<R> {
                     },
                 )
             }
-            _ => unreachable!("a scalar field validator holds checks of the field's kind"),
         }
     }
 

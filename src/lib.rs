@@ -20,16 +20,16 @@ mod runtime;
 mod view;
 mod violation;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, PoisonError, RwLock};
 
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::import_exception;
 use pyo3::prelude::*;
 use pyo3::sync::{PyOnceLock, RwLockExt};
-use pyo3::types::{PyList, PyString};
+use pyo3::types::{PyList, PyString, PyType};
 
-use protovalidate::{DescriptorError, Error};
+use protovalidate::{CompiledType, DescriptorError, Error};
 
 use constants::{Constants, Imports};
 use hints::{PbMessage, PbRegistry, ViolationList};
@@ -85,6 +85,19 @@ struct Validator {
     constants: &'static Constants,
     /// Python types and extensions.
     imports: Arc<Imports>,
+    /// The message classes validated so far, by the address of the class.
+    /// Each entry keeps its class alive, so the address is not reused.
+    types: RwLock<HashMap<usize, KnownType>>,
+}
+
+/// What validating a message of one class needs, once the rules of the
+/// class are compiled.
+struct KnownType {
+    /// The class is held so that it outlives the entry and its address is
+    /// not reused.
+    _class: Py<PyType>,
+    adapter: ProtoAdapter,
+    compiled: CompiledType,
 }
 
 /// The core validator and registration state for one Python runtime.
@@ -123,6 +136,7 @@ impl Validator {
             preregistered,
             constants,
             imports: Arc::new(Imports::resolve(py)?),
+            types: RwLock::new(HashMap::new()),
         })
     }
 
@@ -195,29 +209,90 @@ struct Invalid {
 }
 
 impl Validator {
-    /// Resolves a message and validates it, returning `None` when it is
-    /// valid.
+    /// Validates a message in place, returning `None` when it is valid.
+    /// The first message of a class registers its descriptor file and
+    /// compiles its rules. Later messages of the class skip straight to
+    /// validation.
+    ///
+    /// Reading the message calls into Python, so the thread stays attached
+    /// to the interpreter throughout. The locks are taken with the
+    /// interpreter-aware variants, so that a thread waiting for one cannot
+    /// deadlock with a thread that Python preempted while it held the
+    /// lock.
     fn check(
         &self,
         py: Python<'_>,
         message: PbMessage<'_, '_>,
         fail_fast: bool,
     ) -> PyResult<Option<Invalid>> {
-        let adapter = ProtoAdapter::resolve(&message.0, self.constants)?;
+        let class = message.0.get_type();
+        let known = self
+            .types
+            .read_py_attached(py)
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&class.as_ptr().addr())
+            .map(|known| (known.adapter.clone_ref(py), known.compiled));
+        let (adapter, compiled) = match known {
+            Some(known) => known,
+            None => self.learn(py, &class, &message.0)?,
+        };
+        let engine = self.engine(py, adapter.runtime)?;
+        let ctx = self.ctx(py, engine, &adapter, &message.0);
+        let core = engine
+            .core
+            .read_py_attached(py)
+            .unwrap_or_else(PoisonError::into_inner);
+        match core.validate_compiled(compiled, &ctx, fail_fast) {
+            Ok(()) => Ok(None),
+            Err(Error::Validation(error)) => Ok(Some(Invalid { adapter, error })),
+            Err(error) => Err(to_py_err(error)),
+        }
+    }
+
+    /// Prepares to validate messages of `class`, the class of `message`.
+    /// It registers the class's descriptor file, compiles the rules of its
+    /// message type, and remembers both for the next message of the class.
+    fn learn(
+        &self,
+        py: Python<'_>,
+        class: &Bound<'_, PyType>,
+        message: &Bound<'_, PyAny>,
+    ) -> PyResult<(ProtoAdapter, CompiledType)> {
+        let adapter = ProtoAdapter::resolve(message, self.constants)?;
         let engine = self.engine(py, adapter.runtime)?;
         let file = adapter.descriptor(py).getattr(&self.constants.file)?;
         engine.register(py, adapter.runtime, &file, self.constants)?;
-
         let type_name = adapter.type_name(py, self.constants)?;
-        let error = self.evaluate(
-            py,
-            engine,
-            &adapter,
-            type_name.to_str()?,
-            &message.0,
-            fail_fast,
-        )?;
-        Ok(error.map(|error| Invalid { adapter, error }))
+        let ctx = self.ctx(py, engine, &adapter, message);
+        let compiled = engine.compile(py, type_name.to_str()?, &ctx)?;
+        self.types
+            .write_py_attached(py)
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(
+                class.as_ptr().addr(),
+                KnownType {
+                    _class: class.clone().unbind(),
+                    adapter: adapter.clone_ref(py),
+                    compiled,
+                },
+            );
+        Ok((adapter, compiled))
+    }
+
+    /// The state of one validation of `message`, whose class `adapter`
+    /// describes.
+    fn ctx<'py>(
+        &self,
+        py: Python<'py>,
+        engine: &'py Engine,
+        adapter: &'py ProtoAdapter,
+        message: &'py Bound<'py, PyAny>,
+    ) -> Ctx<'py> {
+        let source = match &engine.registry {
+            Some(registry) => TypeSource::Registry(registry.bind(py)),
+            None => TypeSource::Descriptor(adapter.descriptor(py)),
+        };
+        Ctx::new(py, adapter.runtime, self.constants, message, source)
     }
 
     /// Converts the violation errors to Python violations.
@@ -253,65 +328,6 @@ impl Validator {
             )
         })
     }
-
-    /// Validates the message in place, returning its violations, or `None`
-    /// when the message is valid. The first validation of a type compiles
-    /// its rules.
-    ///
-    /// Reading the message and resolving its types call into Python, so the
-    /// thread stays attached to the interpreter throughout. The core lock is
-    /// taken with the interpreter-aware variants, so that a thread waiting
-    /// for it cannot deadlock with a thread that Python preempted while it
-    /// held the lock.
-    fn evaluate<'py>(
-        &self,
-        py: Python<'py>,
-        engine: &Engine,
-        adapter: &ProtoAdapter,
-        type_name: &str,
-        message: &Bound<'py, PyAny>,
-        fail_fast: bool,
-    ) -> PyResult<Option<protovalidate::ValidationError>> {
-        let registry = engine.registry.as_ref().map(|registry| registry.bind(py));
-        let source = match registry {
-            Some(registry) => TypeSource::Registry(registry),
-            None => TypeSource::Descriptor(adapter.descriptor(py)),
-        };
-        let ctx = Ctx::new(py, adapter.runtime, self.constants, message, source);
-        let finish = |result| match result {
-            Ok(()) => Ok(None),
-            Err(Error::Validation(error)) => Ok(Some(error)),
-            Err(error) => Err(to_py_err(error)),
-        };
-        {
-            let core = engine
-                .core
-                .read_py_attached(py)
-                .unwrap_or_else(PoisonError::into_inner);
-            if let Some(compiled) = core.compiled_type(type_name) {
-                return finish(core.validate_compiled(compiled, &ctx, fail_fast));
-            }
-        }
-        // If another thread compiled the type in the meantime, this does
-        // nothing.
-        let compiled = engine
-            .core
-            .write_py_attached(py)
-            .unwrap_or_else(PoisonError::into_inner)
-            .compile(type_name, &ctx);
-        match compiled {
-            // Rules that did not compile are reported when validation reaches
-            // them, so when failing fast, a violation found before them is
-            // reported instead.
-            Ok(()) | Err(Error::Compilation(_)) => {}
-            Err(error) => return Err(to_py_err(error)),
-        }
-        let core = engine
-            .core
-            .read_py_attached(py)
-            .unwrap_or_else(PoisonError::into_inner);
-        finish(core.validate_message(type_name, &ctx, fail_fast))
-    }
 }
 
 impl Engine {
@@ -337,6 +353,35 @@ impl Engine {
             engine.register(py, ProtoRuntime::ProtobufPy, file.bind(py), constants)?;
         }
         Ok(engine)
+    }
+
+    /// Compiles the rules of the message type `type_name`, resolving its
+    /// types through `ctx`, and returns the compiled type. A type compiled
+    /// already, possibly by another thread, is returned as it is.
+    fn compile(&self, py: Python<'_>, type_name: &str, ctx: &Ctx<'_>) -> PyResult<CompiledType> {
+        {
+            let core = self
+                .core
+                .read_py_attached(py)
+                .unwrap_or_else(PoisonError::into_inner);
+            if let Some(compiled) = core.compiled_type(type_name) {
+                return Ok(compiled);
+            }
+        }
+        let mut core = self
+            .core
+            .write_py_attached(py)
+            .unwrap_or_else(PoisonError::into_inner);
+        match core.compile(type_name, ctx) {
+            // Rules that did not compile are reported when validation reaches
+            // them, so when failing fast, a violation found before them is
+            // reported instead.
+            Ok(()) | Err(Error::Compilation(_)) => {}
+            Err(error) => return Err(to_py_err(error)),
+        }
+        core.compiled_type(type_name).ok_or_else(|| {
+            PyException::new_err(format!("rules not compiled for message type {type_name}"))
+        })
     }
 
     /// Registers `file`, a descriptor file of `runtime`, together with its

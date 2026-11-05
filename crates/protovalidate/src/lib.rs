@@ -19,7 +19,7 @@
 //! full rule set including custom CEL expressions. The standard rules are
 //! evaluated in Rust, and custom CEL expressions by [cel-cpp], which the
 //! `cel` feature (on by default) compiles in. A schema without custom
-//! rules can disable it and skip the C++ build, in which case`pattern` rules
+//! rules can disable it and skip the C++ build, in which case `pattern` rules
 //! use the `regex` crate instead of RE2.
 //!
 //! # Usage

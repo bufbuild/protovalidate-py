@@ -154,11 +154,11 @@ impl fmt::Display for ValidationError {
             }
             return Ok(());
         }
-        let Some((first, rest)) = self.violations.split_first() else {
-            return f.write_str("validation failed");
-        };
-        first.fmt(f)?;
-        match rest.len() {
+        let mut violations = self.violations.iter();
+        if let Some(first) = violations.next() {
+            first.fmt(f)?;
+        }
+        match violations.len() {
             0 => Ok(()),
             1 => f.write_str(", and 1 more violation"),
             more => write!(f, ", and {more} more violations"),
