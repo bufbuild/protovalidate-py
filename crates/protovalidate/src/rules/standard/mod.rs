@@ -66,6 +66,19 @@ pub(crate) enum Checks {
     /// No rules message is set.
     #[default]
     None,
+    /// The checks of a scalar or enum value.
+    Scalar(ScalarChecks),
+    List(Vec<Check<ListTest>>),
+    Map(Vec<Check<MapTest>>),
+    Duration(Vec<Check<Cmp<Duration>>>),
+    Timestamp(Vec<Check<TimestampTest>>),
+    FieldMask(Vec<Check<FieldMaskTest>>),
+    Any(Vec<Check<AnyTest>>),
+}
+
+/// The checks of a scalar or enum value, which also apply to the value
+/// that a wrapper message holds.
+pub(crate) enum ScalarChecks {
     Bool(Vec<Check<bool>>),
     Int(Vec<Check<Cmp<i64>>>),
     Uint(Vec<Check<Cmp<u64>>>),
@@ -73,12 +86,38 @@ pub(crate) enum Checks {
     String(Vec<Check<StrTest>>),
     Bytes(Vec<Check<BytesTest>>),
     Enum(Vec<Check<EnumTest>>),
-    List(Vec<Check<ListTest>>),
-    Map(Vec<Check<MapTest>>),
-    Duration(Vec<Check<Cmp<Duration>>>),
-    Timestamp(Vec<Check<TimestampTest>>),
-    FieldMask(Vec<Check<FieldMaskTest>>),
-    Any(Vec<Check<AnyTest>>),
+}
+
+impl ScalarChecks {
+    /// Whether there is nothing to check.
+    pub(crate) fn is_empty(&self) -> bool {
+        match self {
+            Self::Bool(checks) => checks.is_empty(),
+            Self::Int(checks) => checks.is_empty(),
+            Self::Uint(checks) => checks.is_empty(),
+            Self::Double(checks) => checks.is_empty(),
+            Self::String(checks) => checks.is_empty(),
+            Self::Bytes(checks) => checks.is_empty(),
+            Self::Enum(checks) => checks.is_empty(),
+        }
+    }
+}
+
+impl Checks {
+    /// Whether there is nothing to check, as when a rules message is set but
+    /// contains no rules that are checked natively.
+    pub(crate) fn is_empty(&self) -> bool {
+        match self {
+            Self::None => true,
+            Self::Scalar(checks) => checks.is_empty(),
+            Self::List(checks) => checks.is_empty(),
+            Self::Map(checks) => checks.is_empty(),
+            Self::Duration(checks) => checks.is_empty(),
+            Self::Timestamp(checks) => checks.is_empty(),
+            Self::FieldMask(checks) => checks.is_empty(),
+            Self::Any(checks) => checks.is_empty(),
+        }
+    }
 }
 
 /// A comparison against the rule's values. The range variants are the
@@ -284,9 +323,9 @@ impl Test<str> for StrTest {
     fn fails(&self, s: &str) -> Result<bool, String> {
         Ok(match self {
             Self::Const(c) => s != c,
-            Self::Len(n) => chars(s) != *n,
-            Self::MinLen(n) => chars(s) < *n,
-            Self::MaxLen(n) => chars(s) > *n,
+            Self::Len(n) => !chars_may_be(s, *n) || chars(s) != *n,
+            Self::MinLen(n) => !chars_at_least(s, *n) && chars(s) < *n,
+            Self::MaxLen(n) => !chars_at_most(s, *n) && chars(s) > *n,
             Self::LenBytes(n) => s.len() as u64 != *n,
             Self::MinBytes(n) => (s.len() as u64) < *n,
             Self::MaxBytes(n) => s.len() as u64 > *n,
@@ -305,6 +344,25 @@ impl Test<str> for StrTest {
 
 fn chars(s: &str) -> u64 {
     s.chars().count() as u64
+}
+
+// A string of `b` bytes has between `b / 4` (rounded up) and `b` chars, which
+// is enough to decide most length rules without counting.
+
+/// Whether `s` is known to have at least `n` chars.
+fn chars_at_least(s: &str, n: u64) -> bool {
+    (s.len() as u64).div_ceil(4) >= n
+}
+
+/// Whether `s` is known to have at most `n` chars.
+fn chars_at_most(s: &str, n: u64) -> bool {
+    s.len() as u64 <= n
+}
+
+/// Whether `s` might have exactly `n` chars.
+fn chars_may_be(s: &str, n: u64) -> bool {
+    let bytes = s.len() as u64;
+    bytes >= n && bytes.div_ceil(4) <= n
 }
 
 pub(crate) enum BytesTest {
@@ -508,7 +566,7 @@ pub(crate) fn has_duplicates<'a>(keys: impl IntoIterator<Item = Option<UniqueKey
 
 #[cfg(test)]
 mod tests {
-    use super::{PAIRWISE_KEYS, UniqueKey, has_duplicates};
+    use super::{PAIRWISE_KEYS, StrTest, Test, UniqueKey, has_duplicates};
 
     fn ints(values: impl IntoIterator<Item = i64>) -> Vec<Option<UniqueKey<'static>>> {
         values
@@ -522,6 +580,30 @@ mod tests {
         assert!(!has_duplicates(ints(0..3)));
         assert!(has_duplicates(ints([1, 2, 1])));
         assert!(!has_duplicates([None, None, Some(UniqueKey::Str("a"))]));
+    }
+
+    #[test]
+    fn length_rules_match_counting_chars() {
+        // One to four bytes per char.
+        for s in [
+            "",
+            "a",
+            "ab",
+            "é",
+            "日本",
+            "😀",
+            "a😀b",
+            "😀😀😀",
+            "abcdefgh",
+        ] {
+            let chars = s.chars().count() as u64;
+            for n in 0..=10 {
+                let fails = |test: StrTest| test.fails(s).expect("length rules do not error");
+                assert_eq!(fails(StrTest::Len(n)), chars != n, "len {n} of {s:?}");
+                assert_eq!(fails(StrTest::MinLen(n)), chars < n, "min_len {n} of {s:?}");
+                assert_eq!(fails(StrTest::MaxLen(n)), chars > n, "max_len {n} of {s:?}");
+            }
+        }
     }
 
     #[test]

@@ -34,6 +34,7 @@ use std::mem;
 use buffa_descriptor::EnumIndex;
 use buffa_types::google::protobuf::{Duration as DurationPb, Timestamp as TimestampPb};
 
+use super::ScalarChecks;
 use super::format::{Double, Duration, List, Timestamp, total_nanos};
 use super::{Check, Checks, Cmp, DoubleTest, MaybeNan, NowTest, Regex, TimestampTest};
 use crate::validate::__buffa::oneof;
@@ -357,9 +358,9 @@ pub(super) fn regex(prefix: &str, pattern: &str) -> Result<Regex, String> {
 /// comparison and range shares.
 macro_rules! integer_checks {
     ($variant:ident, $at:expr, $prefix:expr, $rules:expr, $module:ident, $narrow:ty => $wide:ty) => {
-        Checks::$variant($at.place(
+        Checks::Scalar(ScalarChecks::$variant($at.place(
             numeric_bounds!($rules, $module, |v: &$narrow| <$wide>::from(*v)).checks($prefix, 1),
-        ))
+        )))
     };
 }
 
@@ -376,11 +377,19 @@ pub(crate) fn checks(
     Ok(match rules {
         RulesType::Float(r) => {
             let bounds = numeric_bounds!(r, float_rules, |v: &f32| Double(f64::from(*v)));
-            Checks::Double(at.place(floating(prefix, bounds, r.finite.take())))
+            Checks::Scalar(ScalarChecks::Double(at.place(floating(
+                prefix,
+                bounds,
+                r.finite.take(),
+            ))))
         }
         RulesType::Double(r) => {
             let bounds = numeric_bounds!(r, double_rules, |v: &f64| Double(*v));
-            Checks::Double(at.place(floating(prefix, bounds, r.finite.take())))
+            Checks::Scalar(ScalarChecks::Double(at.place(floating(
+                prefix,
+                bounds,
+                r.finite.take(),
+            ))))
         }
         RulesType::Int32(r) => integer_checks!(Int, at, prefix, r, int32rules, i32 => i64),
         RulesType::Int64(r) => integer_checks!(Int, at, prefix, r, int64rules, i64 => i64),
@@ -406,10 +415,18 @@ pub(crate) fn checks(
             ),
         ),
         RulesType::Timestamp(r) => Checks::Timestamp(at.place(timestamp_checks(prefix, r)?)),
-        RulesType::Bool(r) => Checks::Bool(at.place(misc::bool_checks(prefix, r))),
-        RulesType::Enum(r) => Checks::Enum(at.place(misc::enum_checks(prefix, r, at.r#enum))),
-        RulesType::String(r) => Checks::String(at.place(string::checks(prefix, r)?)),
-        RulesType::Bytes(r) => Checks::Bytes(at.place(misc::bytes_checks(prefix, r)?)),
+        RulesType::Bool(r) => {
+            Checks::Scalar(ScalarChecks::Bool(at.place(misc::bool_checks(prefix, r))))
+        }
+        RulesType::Enum(r) => Checks::Scalar(ScalarChecks::Enum(
+            at.place(misc::enum_checks(prefix, r, at.r#enum)),
+        )),
+        RulesType::String(r) => {
+            Checks::Scalar(ScalarChecks::String(at.place(string::checks(prefix, r)?)))
+        }
+        RulesType::Bytes(r) => Checks::Scalar(ScalarChecks::Bytes(
+            at.place(misc::bytes_checks(prefix, r)?),
+        )),
         RulesType::Repeated(r) => Checks::List(at.place(misc::repeated_checks(prefix, r))),
         RulesType::Map(r) => Checks::Map(at.place(misc::map_checks(prefix, r))),
         RulesType::FieldMask(r) => Checks::FieldMask(at.place(misc::field_mask_checks(prefix, r))),

@@ -32,6 +32,7 @@ pub struct Field<R: Runtime> {
     name: Cow<'static, str>,
     kind: Kind,
     message_type: Option<R::MessageType>,
+    ty: R::FieldType,
     has_presence: bool,
 }
 
@@ -42,6 +43,7 @@ impl<R: Runtime> Clone for Field<R> {
             name: self.name.clone(),
             kind: self.kind,
             message_type: self.message_type.clone(),
+            ty: self.ty.clone(),
             has_presence: self.has_presence,
         }
     }
@@ -61,22 +63,30 @@ impl<R: Runtime> fmt::Debug for Field<R> {
 impl<R: Runtime> PartialEq for Field<R>
 where
     R::MessageType: PartialEq,
+    R::FieldType: PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.number == other.number
             && self.name == other.name
             && self.kind == other.kind
             && self.message_type == other.message_type
+            && self.ty == other.ty
             && self.has_presence == other.has_presence
     }
 }
 
-impl<R: Runtime> Eq for Field<R> where R::MessageType: Eq {}
+impl<R: Runtime> Eq for Field<R>
+where
+    R::MessageType: Eq,
+    R::FieldType: Eq,
+{
+}
 
 impl<R: Runtime> Field<R> {
     pub(crate) fn from_descriptor(
         field: &FieldDescriptor,
         message_type: Option<R::MessageType>,
+        field_type: R::FieldType,
     ) -> Self {
         let kind = match field.kind() {
             FieldKind::Singular(value) => Kind::Singular(singular(value)),
@@ -91,20 +101,9 @@ impl<R: Runtime> Field<R> {
             name: Cow::Owned(field.name().to_owned()),
             kind,
             message_type,
+            ty: field_type,
             has_presence: matches!(kind, Kind::Singular(_))
                 && field.presence() != FieldPresence::Implicit,
-        }
-    }
-
-    /// A field of a well-known type, which the rules read directly. The
-    /// well-known types are proto3, so they do not track presence.
-    pub(crate) const fn well_known(number: u32, name: &'static str, kind: Kind) -> Self {
-        Self {
-            number,
-            name: Cow::Borrowed(name),
-            kind,
-            message_type: None,
-            has_presence: false,
         }
     }
 
@@ -132,6 +131,13 @@ impl<R: Runtime> Field<R> {
     #[must_use]
     pub fn message_type(&self) -> Option<&R::MessageType> {
         self.message_type.as_ref()
+    }
+
+    /// The runtime's representation of the field, as returned by
+    /// [`Resolver::resolve_field`](super::Resolver::resolve_field).
+    #[must_use]
+    pub fn field_type(&self) -> &R::FieldType {
+        &self.ty
     }
 
     /// Whether the field tracks presence, as a singular field that is

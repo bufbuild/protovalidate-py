@@ -59,6 +59,24 @@ class Oneof(_message.Message):
     z: TestOneofMsg
     def __init__(self, x: _Optional[str] = ..., y: _Optional[int] = ..., z: _Optional[_Union[TestOneofMsg, _Mapping]] = ...) -> None: ...
 
+class OneofOrder(_message.Message):
+    __slots__ = ("first", "member", "last")
+    FIRST_FIELD_NUMBER: _ClassVar[int]
+    MEMBER_FIELD_NUMBER: _ClassVar[int]
+    LAST_FIELD_NUMBER: _ClassVar[int]
+    first: str
+    member: str
+    last: str
+    def __init__(self, first: _Optional[str] = ..., member: _Optional[str] = ..., last: _Optional[str] = ...) -> None: ...
+
+class OneofRequiredOrder(_message.Message):
+    __slots__ = ("first", "member")
+    FIRST_FIELD_NUMBER: _ClassVar[int]
+    MEMBER_FIELD_NUMBER: _ClassVar[int]
+    first: str
+    member: str
+    def __init__(self, first: _Optional[str] = ..., member: _Optional[str] = ...) -> None: ...
+
 class ProtovalidateOneof(_message.Message):
     __slots__ = ("a", "b", "unrelated")
     A_FIELD_NUMBER: _ClassVar[int]
