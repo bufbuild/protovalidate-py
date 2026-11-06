@@ -60,7 +60,8 @@ message OneofOrder {
   string last = 3 [(buf.validate.field).string.min_len = 1];
 }
 
-// A required oneof is checked where it is declared, as its members are.
+// A required oneof is checked before the fields, and its member is still
+// validated where it is declared.
 message OneofRequiredOrder {
   string first = 1 [(buf.validate.field).string.min_len = 1];
   oneof o {

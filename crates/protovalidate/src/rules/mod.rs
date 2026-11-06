@@ -151,6 +151,9 @@ pub(crate) struct MessageValidator<R: Runtime> {
     pub message_type: R::MessageType,
     pub cel: Option<CelPrograms>,
     pub message_oneofs: Vec<MessageOneof<R>>,
+    /// The `required` oneofs. They are checked before the fields, which is
+    /// the order that protovalidate-go reports violations in.
+    pub required: Vec<OneofRequired<R>>,
     /// The fields and oneofs to validate, in declaration order, or why a
     /// field's rules did not compile. A field whose rules do nothing is
     /// left out. A field that its oneof validates has no step of its own.
@@ -175,14 +178,31 @@ pub(crate) struct MessageOneof<R: Runtime> {
     pub required: bool,
 }
 
+/// A `(buf.validate.oneof).required` rule. The check records which member
+/// is set, so that a [`Step::Oneof`] of the same oneof does not ask the
+/// message again.
+pub(crate) struct OneofRequired<R: Runtime> {
+    pub oneof: Oneof<R>,
+    pub element: FieldPathElement,
+}
+
 /// A oneof whose set member is looked up once and is the only member
 /// validated.
 pub(crate) struct OneofValidator<R: Runtime> {
-    pub oneof: Oneof<R>,
-    /// The oneof's path element, if it is `required`.
-    pub required: Option<FieldPathElement>,
+    /// How the set member is found.
+    pub set: SetMember<R>,
     /// The members that are validated through the oneof, by field number.
+    /// The list is never empty.
     pub members: Vec<(u32, FieldValidator<R>)>,
+}
+
+/// How a [`OneofValidator`] finds the set member of its oneof.
+pub(crate) enum SetMember<R: Runtime> {
+    /// The validator asks the message which member is set.
+    Ask(Oneof<R>),
+    /// The required check at this position in [`MessageValidator::required`]
+    /// already asked the message and recorded the answer.
+    Remembered(usize),
 }
 
 /// What every field validator needs.
@@ -390,7 +410,10 @@ impl<R: Runtime> FieldValidator<R> {
 impl<R: Runtime> MessageValidator<R> {
     /// Whether validating a message of this type does nothing.
     pub(crate) fn is_empty(&self) -> bool {
-        self.cel.is_none() && self.message_oneofs.is_empty() && self.steps.is_empty()
+        self.cel.is_none()
+            && self.message_oneofs.is_empty()
+            && self.required.is_empty()
+            && self.steps.is_empty()
     }
 
     /// Every field validator, whether the field is validated on its own or

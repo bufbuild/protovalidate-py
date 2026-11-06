@@ -25,8 +25,8 @@ use std::collections::HashSet;
 
 use super::{
     CelPrograms, FieldHeader, FieldKind, FieldValidator, ItemValidator, MessageOneof,
-    MessageValidator, NativeChecks, OneofValidator, Step, ValidatorIndex, ValueValidator,
-    nested_type, scalar_checks,
+    MessageValidator, NativeChecks, OneofRequired, OneofValidator, SetMember, Step, ValidatorIndex,
+    ValueValidator, nested_type, scalar_checks,
 };
 use crate::protobuf::{Field, Kind, Oneof, Runtime, Singular};
 use crate::validate::FieldPathElement;
@@ -179,9 +179,10 @@ impl<R: Runtime> PendingValidator<R> {
     ///
     /// A oneof takes the members it validates out of the fields, and is
     /// validated where its first member is declared, so that violations are
-    /// reported in declaration order. A member whose rules did not compile
-    /// stays a field, so that the error is reported. A field whose rules do
-    /// nothing is dropped.
+    /// reported in declaration order. A required oneof is also checked
+    /// before the fields. A member whose rules did not compile stays a
+    /// field, so that the error is reported. A field whose rules do nothing
+    /// is dropped.
     pub(crate) fn finalize(self) -> MessageValidator<R> {
         let Self {
             message_type,
@@ -192,7 +193,9 @@ impl<R: Runtime> PendingValidator<R> {
         } = self;
         let mut fields: Vec<Option<Result<PendingField<R>, String>>> =
             fields.into_iter().map(Some).collect();
-        // The oneofs to validate, each with its position in `fields`.
+        let mut required = Vec::new();
+        // The oneofs with members to validate, each with its position in
+        // `fields`.
         let mut validators = Vec::new();
         for oneof in oneofs {
             let mut members = Vec::new();
@@ -203,13 +206,18 @@ impl<R: Runtime> PendingValidator<R> {
                     members.push((field.field.number(), field.finalize()));
                 }
             }
-            if oneof.required.is_some() || !members.is_empty() {
-                let validator = OneofValidator {
-                    oneof: oneof.oneof,
-                    required: oneof.required,
-                    members,
-                };
-                validators.push((oneof.position, validator));
+            let set = match oneof.required {
+                Some(element) => {
+                    required.push(OneofRequired {
+                        oneof: oneof.oneof,
+                        element,
+                    });
+                    SetMember::Remembered(required.len() - 1)
+                }
+                None => SetMember::Ask(oneof.oneof),
+            };
+            if !members.is_empty() {
+                validators.push((oneof.position, OneofValidator { set, members }));
             }
         }
         let mut steps: Vec<Option<Result<Step<R>, String>>> = fields
@@ -229,6 +237,7 @@ impl<R: Runtime> PendingValidator<R> {
             message_type,
             cel,
             message_oneofs,
+            required,
             steps: steps.into_iter().flatten().collect(),
         }
     }

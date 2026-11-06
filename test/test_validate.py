@@ -98,9 +98,9 @@ def test_oneof_member_violations_in_declaration_order(
 
 
 @pytest.mark.parametrize("validator", validators)
-def test_required_oneof_checked_where_declared(validator: ValidatorProtocol) -> None:
+def test_required_oneof_checked_before_fields(validator: ValidatorProtocol) -> None:
     unset = validations_pb.OneofRequiredOrder(first="")
-    assert violated_fields(validator.collect_violations(unset)) == ["first", "o"]
+    assert violated_fields(validator.collect_violations(unset)) == ["o", "first"]
 
     empty = validations_pb.OneofRequiredOrder(
         first="", o=Oneof(field="member", value="")

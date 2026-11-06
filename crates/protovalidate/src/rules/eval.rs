@@ -32,8 +32,8 @@ use super::standard::{
 };
 use super::{
     CelPrograms, FieldHeader, FieldKind, FieldValidator, ItemValidator, MessageOneof,
-    MessageValidator, NativeChecks, OneofValidator, Step, ValidatorCache, ValidatorIndex,
-    ValueValidator,
+    MessageValidator, NativeChecks, OneofRequired, OneofValidator, SetMember, Step, ValidatorCache,
+    ValidatorIndex, ValueValidator,
 };
 use crate::Error;
 use crate::cel::{self, Env, Frame, ScalarValue, This, Value};
@@ -175,6 +175,11 @@ pub(crate) struct Walk<'a, R: Runtime> {
     env: &'a Env,
     validators: &'a ValidatorCache<R>,
     out: Violations,
+    /// The answers of the required checks, which the oneof steps read. Each
+    /// message pushes its answers while it is validated, so the innermost
+    /// message's answers come last. An abort leaves entries behind, which
+    /// is harmless because an abort ends the walk.
+    set_members: Vec<Option<u32>>,
 }
 
 impl<'a, R: Runtime> Walk<'a, R> {
@@ -190,6 +195,7 @@ impl<'a, R: Runtime> Walk<'a, R> {
             env,
             validators,
             out: Violations::new(fail_fast),
+            set_members: Vec::new(),
         }
     }
 
@@ -337,15 +343,20 @@ impl<R: Runtime> MessageValidator<R> {
         for oneof in &self.message_oneofs {
             oneof.check(walk, message)?;
         }
+        let base = walk.set_members.len();
+        for oneof in &self.required {
+            oneof.check(walk, message)?;
+        }
         for step in &self.steps {
             match step
                 .as_ref()
                 .map_err(|error| Error::Compilation(error.clone()))?
             {
                 Step::Field(field) => field.validate(walk, message, frame, None)?,
-                Step::Oneof(oneof) => oneof.validate(walk, message, frame)?,
+                Step::Oneof(oneof) => oneof.validate(walk, message, frame, base)?,
             }
         }
+        walk.set_members.truncate(base);
         Ok(())
     }
 }
@@ -406,32 +417,52 @@ impl<R: Runtime> MessageOneof<R> {
     }
 }
 
-impl<R: Runtime> OneofValidator<R> {
-    /// Validates the set member, if there is one. If none is set and the
-    /// oneof is required, reports a violation.
-    fn validate<'a>(
+impl<R: Runtime> OneofRequired<R> {
+    /// Reports a violation if no member of the oneof is set, and records
+    /// which member is set for the oneof's step.
+    fn check<'a>(
         &'a self,
         walk: &mut Walk<'a, R>,
         message: &R::Message<'_>,
-        frame: &CelFrame<'_, '_, R>,
     ) -> Result<(), Abort<R::Error>> {
-        if let Some(number) = message.which_oneof(&self.oneof).read()? {
-            // A member that the validator does not know of has no rules.
-            return match self.members.iter().find(|(member, _)| *member == number) {
-                Some((_, field)) => field.validate(walk, message, frame, Some(true)),
-                None => Ok(()),
-            };
-        }
-        let Some(element) = &self.required else {
+        let set = message.which_oneof(&self.oneof).read()?;
+        walk.set_members.push(set);
+        if set.is_some() {
             return Ok(());
-        };
-        walk.at(element, |walk| {
+        }
+        walk.at(&self.element, |walk| {
             walk.out.push(
                 "required",
                 "exactly one field is required in oneof".to_owned(),
                 &[],
             )
         })
+    }
+}
+
+impl<R: Runtime> OneofValidator<R> {
+    /// Validates the set member, if there is one. `base` is where the
+    /// answers recorded for the message being validated start in
+    /// [`Walk::set_members`].
+    fn validate<'a>(
+        &'a self,
+        walk: &mut Walk<'a, R>,
+        message: &R::Message<'_>,
+        frame: &CelFrame<'_, '_, R>,
+        base: usize,
+    ) -> Result<(), Abort<R::Error>> {
+        let set = match &self.set {
+            SetMember::Ask(oneof) => message.which_oneof(oneof).read()?,
+            SetMember::Remembered(position) => walk.set_members[base + position],
+        };
+        let Some(number) = set else {
+            return Ok(());
+        };
+        // A member that the validator does not know of has no rules.
+        match self.members.iter().find(|(member, _)| *member == number) {
+            Some((_, field)) => field.validate(walk, message, frame, Some(true)),
+            None => Ok(()),
+        }
     }
 }
 

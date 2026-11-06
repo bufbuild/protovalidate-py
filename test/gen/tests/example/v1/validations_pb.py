@@ -231,7 +231,8 @@ _OneofRequiredOrderFields: TypeAlias = Literal["first", "member"]
 
 class OneofRequiredOrder(Message[_OneofRequiredOrderFields]):
     """
-    A required oneof is checked where it is declared, as its members are.
+    A required oneof is checked before the fields, and its member is still
+    validated where it is declared.
 
     ```proto
     message tests.example.v1.OneofRequiredOrder

@@ -91,11 +91,11 @@ def test_legacy_oneof_member_violations_in_declaration_order(
 
 
 @pytest.mark.parametrize("validator", validators)
-def test_legacy_required_oneof_checked_where_declared(
+def test_legacy_required_oneof_checked_before_fields(
     validator: ValidatorProtocol,
 ) -> None:
     unset = validations_pb2.OneofRequiredOrder(first="")
-    assert violated_fields(validator.collect_violations(unset)) == ["first", "o"]
+    assert violated_fields(validator.collect_violations(unset)) == ["o", "first"]
 
     empty = validations_pb2.OneofRequiredOrder(first="", member="")
     assert violated_fields(validator.collect_violations(empty)) == ["first", "member"]
