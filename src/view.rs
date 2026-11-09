@@ -18,12 +18,13 @@
 //! protobuf-py and google.protobuf message objects, so a message is
 //! validated in place.
 
+use std::borrow::Cow;
 use std::cell::{OnceCell, RefCell};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use protovalidate::protobuf::{
-    Field, Kind, List, Map, Message, Reader, Runtime, Scalar, Singular, Val,
+    Field, Key, Kind, List, Map, Message, Oneof, Reader, Resolver, Runtime, Scalar, Singular, Val,
 };
 use pyo3::Borrowed;
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -42,6 +43,9 @@ pub(crate) struct PyRuntime;
 impl Runtime for PyRuntime {
     type Error = ReadError;
     type MessageType = Arc<TypeInfo>;
+    /// The field's position in its message type's fields, or `None` if the
+    /// Python type has no such field.
+    type FieldType = Option<usize>;
     type Message<'a> = MessageView<'a>;
     type List<'a> = ListView<'a>;
     type Map<'a> = MapView<'a>;
@@ -61,12 +65,10 @@ impl TypeInfo {
         Ok(Self { fields })
     }
 
-    fn find(&self, number: u32) -> Option<(usize, &FieldInfo)> {
-        let slot = self
-            .fields
+    fn find(&self, number: u32) -> Option<usize> {
+        self.fields
             .binary_search_by_key(&number, |field| field.number)
-            .ok()?;
-        Some((slot, &self.fields[slot]))
+            .ok()
     }
 }
 
@@ -129,7 +131,7 @@ impl<'py> Ctx<'py> {
     }
 }
 
-impl Reader<PyRuntime> for Ctx<'_> {
+impl Resolver<PyRuntime> for Ctx<'_> {
     fn resolve(&self, full_name: &str) -> Result<Arc<TypeInfo>, ReadError> {
         let descriptor = match self.source {
             TypeSource::Registry(registry) => {
@@ -149,6 +151,16 @@ impl Reader<PyRuntime> for Ctx<'_> {
         Ok(Arc::new(TypeInfo::build(self, &descriptor)?))
     }
 
+    fn resolve_field(
+        &self,
+        message_type: &Arc<TypeInfo>,
+        number: u32,
+    ) -> Result<Option<usize>, ReadError> {
+        Ok(message_type.find(number))
+    }
+}
+
+impl Reader<PyRuntime> for Ctx<'_> {
     fn message<'a>(
         &'a self,
         message_type: &'a Arc<TypeInfo>,
@@ -213,10 +225,68 @@ impl Drop for MessageView<'_> {
     }
 }
 
+impl<'a> MessageView<'a> {
+    /// The message object, the field's position, and how to read the field,
+    /// or `None` if the message is unset or its type has no such field.
+    fn stored(
+        &self,
+        field: &Field<PyRuntime>,
+    ) -> Option<(&'a Bound<'a, PyAny>, usize, &'a FieldInfo)> {
+        let (object, info) = self.object?;
+        let slot = (*field.field_type())?;
+        Some((object, slot, info.fields.get(slot)?))
+    }
+
+    /// The field's Python object. Every field of an unset message is
+    /// treated as not set.
+    fn fetch(&self, field: &Field<PyRuntime>) -> PyResult<Fetched<'_, 'a>> {
+        if self.object.is_none() {
+            return Ok(Fetched::Unset);
+        }
+        let Some((object, slot, stored)) = self.stored(field) else {
+            return Ok(Fetched::Missing);
+        };
+        Ok(match self.value(object, slot, stored)? {
+            Some(value) => Fetched::Set(value),
+            None => Fetched::Unset,
+        })
+    }
+}
+
+/// Whether a field is set, as found when reading it.
+enum Fetched<'v, 'a> {
+    /// The field is set to this object.
+    Set(&'v Bound<'a, PyAny>),
+    /// The field is not set and reads as its type's default value.
+    Unset,
+    /// The message's type has no such field.
+    Missing,
+}
+
+impl<'v, 'a> Fetched<'v, 'a> {
+    /// Converts the field's object with `extract`, or uses `default` if the
+    /// field is not set.
+    fn scalar<T>(
+        self,
+        default: T,
+        extract: impl FnOnce(&'v Bound<'a, PyAny>) -> PyResult<T>,
+    ) -> Result<Option<T>, ReadError> {
+        Ok(match self {
+            Self::Set(value) => Some(extract(value)?),
+            Self::Unset => Some(default),
+            Self::Missing => None,
+        })
+    }
+}
+
+/// The error for a field read as a kind that is not its own.
+fn wrong_kind(field: &Field<PyRuntime>, kind: &str) -> PyErr {
+    PyTypeError::new_err(format!("field {} is not {kind}", field.name()))
+}
+
 impl Message<PyRuntime> for MessageView<'_> {
     fn encode(&self) -> Result<impl AsRef<[u8]>, ReadError> {
-        // An unset message reads as one with nothing set, which encodes to
-        // nothing.
+        // An unset message is empty, so it encodes to no bytes.
         Ok(match self.object {
             Some((object, _)) => self.ctx.runtime.serialize(object, self.ctx.constants)?,
             None => PyBytes::new(self.ctx.py, &[]),
@@ -224,10 +294,7 @@ impl Message<PyRuntime> for MessageView<'_> {
     }
 
     fn has(&self, field: &Field<PyRuntime>) -> Result<bool, ReadError> {
-        let Some((object, info)) = self.object else {
-            return Ok(false);
-        };
-        let Some((slot, stored)) = info.find(field.number()) else {
+        let Some((object, slot, stored)) = self.stored(field) else {
             return Ok(false);
         };
         Ok(self.ctx.runtime.is_set(
@@ -239,55 +306,151 @@ impl Message<PyRuntime> for MessageView<'_> {
         )?)
     }
 
-    fn get<'f>(
-        &'f self,
-        field: &'f Field<PyRuntime>,
-    ) -> Result<Option<Val<'f, PyRuntime>>, ReadError> {
-        let message_type = field.message_type().map(Arc::as_ref);
-        let Some((object, info)) = self.object else {
-            // Nothing is set: every field reads as its default.
-            return Ok(Some(convert(self.ctx, field.kind(), None, message_type)?));
-        };
-        let Some((slot, stored)) = info.find(field.number()) else {
+    fn which_oneof(&self, oneof: &Oneof<PyRuntime>) -> Result<Option<u32>, ReadError> {
+        // If the Python type has none of the members, none of them is set.
+        let Some((object, _, member)) = oneof.members().iter().find_map(|m| self.stored(m)) else {
             return Ok(None);
         };
-        Ok(Some(convert(
-            self.ctx,
-            field.kind(),
-            self.value(object, slot, stored)?,
-            message_type,
-        )?))
+        let runtime = self.ctx.runtime;
+        let Some(set) = runtime.which_oneof(object, oneof.name(), member, self.ctx.constants)?
+        else {
+            return Ok(None);
+        };
+        let set = set.cast_into::<PyString>().map_err(PyErr::from)?;
+        let set = set.to_str()?;
+        if let Some(member) = oneof.members().iter().find(|m| m.name() == set) {
+            return Ok(Some(member.number()));
+        }
+        // The set member is one that the validator does not know of, so its
+        // number comes from the Python type.
+        let info = self.object.map(|(_, info)| info);
+        let number = info.and_then(|info| {
+            info.fields
+                .iter()
+                .find(|field| field.member_name().bind(self.ctx.py) == set)
+                .map(|field| field.number)
+        });
+        number
+            .ok_or_else(|| {
+                Box::new(PyValueError::new_err(format!(
+                    "oneof {} has no member {set}",
+                    oneof.name()
+                )))
+            })
+            .map(Some)
+    }
+
+    fn get_bool(&self, field: &Field<PyRuntime>) -> Result<Option<bool>, ReadError> {
+        self.fetch(field)?.scalar(false, PyAnyMethods::extract)
+    }
+
+    fn get_int(&self, field: &Field<PyRuntime>) -> Result<Option<i64>, ReadError> {
+        self.fetch(field)?.scalar(0, PyAnyMethods::extract)
+    }
+
+    fn get_uint(&self, field: &Field<PyRuntime>) -> Result<Option<u64>, ReadError> {
+        self.fetch(field)?.scalar(0, PyAnyMethods::extract)
+    }
+
+    fn get_double(&self, field: &Field<PyRuntime>) -> Result<Option<f64>, ReadError> {
+        self.fetch(field)?.scalar(0.0, PyAnyMethods::extract)
+    }
+
+    fn get_enum(&self, field: &Field<PyRuntime>) -> Result<Option<i32>, ReadError> {
+        self.fetch(field)?.scalar(0, PyAnyMethods::extract)
+    }
+
+    fn get_str<'f>(
+        &'f self,
+        field: &'f Field<PyRuntime>,
+    ) -> Result<Option<Cow<'f, str>>, ReadError> {
+        self.fetch(field)?.scalar(Cow::Borrowed(""), |value| {
+            Ok(Cow::Borrowed(value.cast::<PyString>()?.to_str()?))
+        })
+    }
+
+    fn get_bytes<'f>(
+        &'f self,
+        field: &'f Field<PyRuntime>,
+    ) -> Result<Option<Cow<'f, [u8]>>, ReadError> {
+        self.fetch(field)?.scalar(Cow::Borrowed(&[][..]), |value| {
+            Ok(Cow::Borrowed(value.cast::<PyBytes>()?.as_bytes()))
+        })
+    }
+
+    fn get_message<'f>(
+        &'f self,
+        field: &'f Field<PyRuntime>,
+    ) -> Result<Option<MessageView<'f>>, ReadError> {
+        let value = match self.fetch(field)? {
+            Fetched::Set(value) => Some(value),
+            Fetched::Unset => None,
+            Fetched::Missing => return Ok(None),
+        };
+        let message_type = field.message_type().map(Arc::as_ref);
+        Ok(Some(message(self.ctx, value, message_type)?))
+    }
+
+    fn get_list<'f>(
+        &'f self,
+        field: &'f Field<PyRuntime>,
+    ) -> Result<Option<ListView<'f>>, ReadError> {
+        let Kind::List(element) = field.kind() else {
+            return Err(wrong_kind(field, "repeated").into());
+        };
+        let object = match self.fetch(field)? {
+            Fetched::Set(value) => Some(value),
+            Fetched::Unset => None,
+            Fetched::Missing => return Ok(None),
+        };
+        Ok(Some(ListView {
+            ctx: self.ctx,
+            element,
+            object,
+            message_type: field.message_type().map(Arc::as_ref),
+            items: OnceCell::new(),
+        }))
+    }
+
+    fn get_map<'f>(
+        &'f self,
+        field: &'f Field<PyRuntime>,
+    ) -> Result<Option<MapView<'f>>, ReadError> {
+        let Kind::Map { key, value } = field.kind() else {
+            return Err(wrong_kind(field, "a map").into());
+        };
+        let object = match self.fetch(field)? {
+            Fetched::Set(value) => Some(value),
+            Fetched::Unset => None,
+            Fetched::Missing => return Ok(None),
+        };
+        Ok(Some(MapView {
+            ctx: self.ctx,
+            key,
+            element: value,
+            object,
+            message_type: field.message_type().map(Arc::as_ref),
+        }))
     }
 }
 
-/// A field's value as the validator sees it; the default when `value` is
-/// `None`.
-fn convert<'a>(
+/// A message value, which is either the object and its type, or an unset
+/// message that reads as an empty message.
+fn message<'a>(
     ctx: &'a Ctx<'a>,
-    kind: Kind,
     value: Option<&'a Bound<'a, PyAny>>,
     message_type: Option<&'a TypeInfo>,
-) -> PyResult<Val<'a, PyRuntime>> {
-    Ok(match kind {
-        Kind::Singular(kind) => singular(ctx, kind, value, message_type)?,
-        Kind::List(element) => Val::List(ListView {
-            ctx,
-            element,
-            object: value,
-            message_type,
-            items: OnceCell::new(),
-        }),
-        Kind::Map {
-            key,
-            value: element,
-        } => Val::Map(MapView {
-            ctx,
-            key,
-            element,
-            object: value,
-            message_type,
-        }),
-    })
+) -> PyResult<MessageView<'a>> {
+    let object = match (value, message_type) {
+        (Some(value), Some(info)) => Some((value, info)),
+        (Some(_), None) => {
+            return Err(PyTypeError::new_err(
+                "a message field was read without its message type",
+            ));
+        }
+        (None, _) => None,
+    };
+    Ok(MessageView::new(ctx, object))
 }
 
 fn singular<'a>(
@@ -297,18 +460,7 @@ fn singular<'a>(
     message_type: Option<&'a TypeInfo>,
 ) -> PyResult<Val<'a, PyRuntime>> {
     Ok(match kind {
-        Singular::Message => {
-            let object = match (value, message_type) {
-                (Some(value), Some(info)) => Some((value, info)),
-                (Some(_), None) => {
-                    return Err(PyTypeError::new_err(
-                        "a message field was read without its message type",
-                    ));
-                }
-                (None, _) => None,
-            };
-            Val::Message(MessageView::new(ctx, object))
-        }
+        Singular::Message => Val::Message(message(ctx, value, message_type)?),
         Singular::Enum => Val::Enum(match value {
             Some(value) => value.extract::<i32>()?,
             None => 0,
@@ -437,15 +589,17 @@ impl Map<PyRuntime> for MapView<'_> {
 
     fn for_each<B, F>(&self, mut f: F) -> Result<ControlFlow<B>, ReadError>
     where
-        F: FnMut(Val<'_, PyRuntime>, Val<'_, PyRuntime>) -> ControlFlow<B>,
+        F: for<'k> FnMut(Key<'k, PyRuntime>, Val<'k, PyRuntime>) -> ControlFlow<B>,
     {
         let Some(object) = self.object else {
             return Ok(ControlFlow::Continue(()));
         };
         for entry in self.ctx.runtime.map_entries(object, self.ctx.constants)? {
             let (k, v) = entry?;
+            // The key is only converted if the validator reads it.
+            let key = || Ok(scalar_value(self.key, &k)?);
             let flow = f(
-                scalar_value(self.key, &k)?,
+                &key,
                 singular(self.ctx, self.element, Some(&v), self.message_type)?,
             );
             if flow.is_break() {

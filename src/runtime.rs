@@ -187,6 +187,13 @@ impl FieldInfo {
         let value = message.getattr(&self.attr)?;
         Ok((!value.is_none()).then_some(value))
     }
+
+    /// The name that the runtime reports when this field is the set member
+    /// of its oneof. Both runtimes report the field's name in the `.proto`
+    /// source.
+    pub(crate) fn member_name(&self) -> &Py<PyString> {
+        self.oneof.as_ref().map_or(&self.attr, |(_, name)| name)
+    }
 }
 
 /// A callback that registers one descriptor file, given the file object
@@ -363,6 +370,36 @@ impl ProtoRuntime {
             }
             Self::ProtobufPy => message.getattr(&constants.present)?.contains(field.number),
         }
+    }
+
+    /// Returns the name of the set member of a oneof, or `None` if no member
+    /// is set. `name` is the oneof's name, and `member` is any of its
+    /// members.
+    pub(crate) fn which_oneof<'py>(
+        self,
+        message: &Bound<'py, PyAny>,
+        name: &str,
+        member: &FieldInfo,
+        constants: &Constants,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let set = match self {
+            Self::Google => message.call_method1(&constants.which_oneof, (name,))?,
+            // protobuf-py stores a oneof in one attribute, whose `field` is
+            // the name of the set member.
+            Self::ProtobufPy => {
+                let Some((oneof, _)) = &member.oneof else {
+                    return Err(PyTypeError::new_err(format!(
+                        "oneof {name} was read through a field outside it"
+                    )));
+                };
+                let selected = message.getattr(oneof)?;
+                if selected.is_none() {
+                    return Ok(None);
+                }
+                selected.getattr(&constants.field)?
+            }
+        };
+        Ok((!set.is_none()).then_some(set))
     }
 
     /// Appends the elements of a repeated field to `items`. The field is a

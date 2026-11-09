@@ -85,6 +85,35 @@ def test_oneofs(validator: ValidatorProtocol) -> None:
 
 
 @pytest.mark.parametrize("validator", validators)
+def test_oneof_member_violations_in_declaration_order(
+    validator: ValidatorProtocol,
+) -> None:
+    msg = validations_pb.OneofOrder(
+        first="", o=Oneof(field="member", value=""), last=""
+    )
+
+    violations = validator.collect_violations(msg)
+
+    assert violated_fields(violations) == ["first", "member", "last"]
+
+
+@pytest.mark.parametrize("validator", validators)
+def test_required_oneof_checked_before_fields(validator: ValidatorProtocol) -> None:
+    unset = validations_pb.OneofRequiredOrder(first="")
+    assert violated_fields(validator.collect_violations(unset)) == ["o", "first"]
+
+    empty = validations_pb.OneofRequiredOrder(
+        first="", o=Oneof(field="member", value="")
+    )
+    assert violated_fields(validator.collect_violations(empty)) == ["first", "member"]
+
+
+def violated_fields(violations: list[Violation]) -> list[str]:
+    """The first element of each violation's field path, in order."""
+    return [v.proto.field.elements[0].field_name for v in violations]
+
+
+@pytest.mark.parametrize("validator", validators)
 def test_protovalidate_oneof_valid(validator: ValidatorProtocol) -> None:
     msg = validations_pb.ProtovalidateOneof()
     msg.a = "A"
