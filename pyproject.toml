@@ -40,12 +40,12 @@ dev-required = [
   "license-header==0.0.1",
   "maturin==1.16.0",
   "poethepoet==0.49.0",
-  "pydantic==2.14.2",
+  "pydantic==2.14.3",
   "pytest==9.2.0",
   "pytest-benchmark==5.3.1",
-  "ruff==0.17.3",
-  "tombi==1.9.8",
-  "ty==0.0.95",
+  "ruff==0.17.4",
+  "tombi==1.11.1",
+  "ty==0.0.99",
   "types-protobuf==6.32.1.20260221",
 ]
 
@@ -56,7 +56,7 @@ dev-required = [
 dev-optional = [
   "protobuf>=6.31.0",
 ]
-docs = ["mkdocstrings-python==2.0.10", "zensical==0.0.74"]
+docs = ["mkdocstrings-python==2.0.10", "zensical==0.1.0"]
 
 [build-system]
 requires = ["maturin>=1.12,<2.0"]
