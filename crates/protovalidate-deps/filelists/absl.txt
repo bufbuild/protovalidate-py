@@ -10,10 +10,10 @@ third_party/abseil-cpp/absl/base/internal/spinlock_wait.cc
 third_party/abseil-cpp/absl/base/internal/strerror.cc
 third_party/abseil-cpp/absl/base/internal/sysinfo.cc
 third_party/abseil-cpp/absl/base/internal/thread_identity.cc
-third_party/abseil-cpp/absl/base/internal/throw_delegate.cc
 third_party/abseil-cpp/absl/base/internal/tracing.cc
 third_party/abseil-cpp/absl/base/internal/unscaledcycleclock.cc
 third_party/abseil-cpp/absl/base/log_severity.cc
+third_party/abseil-cpp/absl/base/throw_delegate.cc
 third_party/abseil-cpp/absl/container/internal/hashtablez_sampler.cc
 third_party/abseil-cpp/absl/container/internal/hashtablez_sampler_force_weak_definition.cc
 third_party/abseil-cpp/absl/container/internal/raw_hash_set.cc
@@ -26,7 +26,6 @@ third_party/abseil-cpp/absl/crc/internal/crc_memcpy_x86_arm_combined.cc
 third_party/abseil-cpp/absl/crc/internal/crc_non_temporal_memcpy.cc
 third_party/abseil-cpp/absl/crc/internal/crc_x86_arm_combined.cc
 third_party/abseil-cpp/absl/debugging/internal/address_is_readable.cc
-third_party/abseil-cpp/absl/debugging/internal/borrowed_fixup_buffer.cc
 third_party/abseil-cpp/absl/debugging/internal/decode_rust_punycode.cc
 third_party/abseil-cpp/absl/debugging/internal/demangle.cc
 third_party/abseil-cpp/absl/debugging/internal/demangle_rust.cc
@@ -37,14 +36,6 @@ third_party/abseil-cpp/absl/debugging/internal/vdso_support.cc
 third_party/abseil-cpp/absl/debugging/leak_check.cc
 third_party/abseil-cpp/absl/debugging/stacktrace.cc
 third_party/abseil-cpp/absl/debugging/symbolize.cc
-third_party/abseil-cpp/absl/flags/commandlineflag.cc
-third_party/abseil-cpp/absl/flags/internal/commandlineflag.cc
-third_party/abseil-cpp/absl/flags/internal/flag.cc
-third_party/abseil-cpp/absl/flags/internal/private_handle_accessor.cc
-third_party/abseil-cpp/absl/flags/internal/program_name.cc
-third_party/abseil-cpp/absl/flags/marshalling.cc
-third_party/abseil-cpp/absl/flags/reflection.cc
-third_party/abseil-cpp/absl/flags/usage_config.cc
 third_party/abseil-cpp/absl/hash/internal/city.cc
 third_party/abseil-cpp/absl/hash/internal/hash.cc
 third_party/abseil-cpp/absl/log/die_if_null.cc
@@ -66,6 +57,7 @@ third_party/abseil-cpp/absl/numeric/int128.cc
 third_party/abseil-cpp/absl/profiling/internal/exponential_biased.cc
 third_party/abseil-cpp/absl/status/internal/status_internal.cc
 third_party/abseil-cpp/absl/status/status.cc
+third_party/abseil-cpp/absl/status/status_builder.cc
 third_party/abseil-cpp/absl/status/status_payload_printer.cc
 third_party/abseil-cpp/absl/status/statusor.cc
 third_party/abseil-cpp/absl/strings/ascii.cc
@@ -131,4 +123,5 @@ third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_lookup.cc
 third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_posix.cc
 third_party/abseil-cpp/absl/time/internal/cctz/src/zone_info_source.cc
 third_party/abseil-cpp/absl/time/time.cc
+third_party/abseil-cpp/absl/types/source_location.cc
 windows:third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_name_win.cc
