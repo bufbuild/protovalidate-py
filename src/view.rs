@@ -19,7 +19,7 @@
 //! validated in place.
 
 use std::borrow::Cow;
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
@@ -84,6 +84,11 @@ pub(crate) enum TypeSource<'py> {
 /// The field values a view has fetched, indexed like its type's field list.
 type Values = Box<[OnceCell<Option<Py<PyAny>>>]>;
 
+thread_local! {
+    /// Emptied value buffers of this thread's last validation, for reuse.
+    static FREE_VALUES: Cell<Vec<Values>> = const { Cell::new(Vec::new()) };
+}
+
 /// The state of one validation: the message being validated, and what
 /// every view needs besides its own object.
 pub(crate) struct Ctx<'py> {
@@ -112,7 +117,7 @@ impl<'py> Ctx<'py> {
             constants,
             message,
             source,
-            free_values: RefCell::new(Vec::new()),
+            free_values: RefCell::new(FREE_VALUES.take()),
             free_items: RefCell::new(Vec::new()),
         }
     }
@@ -128,6 +133,13 @@ impl<'py> Ctx<'py> {
             Some(found) => free.swap_remove(found),
             None => std::iter::repeat_with(OnceCell::new).take(len).collect(),
         }
+    }
+}
+
+impl Drop for Ctx<'_> {
+    fn drop(&mut self) {
+        // Fails only while the thread is exiting.
+        let _ = FREE_VALUES.try_with(|free| free.set(self.free_values.take()));
     }
 }
 

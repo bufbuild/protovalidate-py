@@ -238,12 +238,15 @@ impl Validator {
             None => self.learn(py, &class, &message.0)?,
         };
         let engine = self.engine(py, adapter.runtime)?;
-        let ctx = self.ctx(py, engine, &adapter, &message.0);
-        let core = engine
-            .core
-            .read_py_attached(py)
-            .unwrap_or_else(PoisonError::into_inner);
-        match core.validate_compiled(compiled, &ctx, fail_fast) {
+        let result = {
+            let ctx = self.ctx(py, engine, &adapter, &message.0);
+            let core = engine
+                .core
+                .read_py_attached(py)
+                .unwrap_or_else(PoisonError::into_inner);
+            core.validate_compiled(compiled, &ctx, fail_fast)
+        };
+        match result {
             Ok(()) => Ok(None),
             Err(Error::Validation(error)) => Ok(Some(Invalid { adapter, error })),
             Err(error) => Err(to_py_err(error)),
@@ -264,8 +267,11 @@ impl Validator {
         let file = adapter.descriptor(py).getattr(&self.constants.file)?;
         engine.register(py, adapter.runtime, &file, self.constants)?;
         let type_name = adapter.type_name(py, self.constants)?;
-        let ctx = self.ctx(py, engine, &adapter, message);
-        let compiled = engine.compile(py, type_name.to_str()?, &ctx)?;
+        let compiled = engine.compile(
+            py,
+            type_name.to_str()?,
+            &self.ctx(py, engine, &adapter, message),
+        )?;
         self.types
             .write_py_attached(py)
             .unwrap_or_else(PoisonError::into_inner)
