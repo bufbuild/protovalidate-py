@@ -229,9 +229,6 @@ class Aquery:
         self._artifacts = {a["id"]: a for a in data.get("artifacts", [])}
         self._fragments = {f["id"]: f for f in data.get("pathFragments", [])}
         self._depsets = {s["id"]: s for s in data.get("depSetOfFiles", [])}
-        self._tree_artifacts = [
-            a["id"] for a in data.get("artifacts", []) if a.get("isTreeArtifact")
-        ]
 
     def path(self, artifact_id: int) -> str:
         parts: list[str] = []
@@ -244,14 +241,18 @@ class Aquery:
             fragment_id = fragment["parentId"]
         return "/".join(reversed(parts))
 
-    def tree_artifact_paths(self) -> set[str]:
-        """The paths of every directory output in the graph.
+    def output_paths(self) -> set[str]:
+        """The paths of every file an action in the graph outputs.
 
-        What is inside one is an action's private staging (an ANTLR run's raw
-        output, say); the files that matter are copied out of it by later
-        actions.
+        A directory output counts as one path, so what is inside one -- an
+        action's private staging, whose files that matter are copied out of it
+        by later actions -- is not included.
         """
-        return {self.path(a) for a in self._tree_artifacts}
+        return {
+            self.path(output)
+            for action in self.data.get("actions", [])
+            for output in action.get("outputIds", [])
+        }
 
     def expand(self, depset_ids: list[int]) -> set[int]:
         found: set[int] = set()
@@ -426,10 +427,10 @@ class Closure(typing.NamedTuple):
     sources: dict[str, set[str]]
     # Bazel-generated C++ sources, keyed the same way.
     generated: dict[str, set[str]]
-    # Directories actions fill as a whole. What is inside one is an action's
-    # private staging (an ANTLR run's raw output, say), and the files that
-    # matter are copied out of it by later actions.
-    tree_artifacts: set[str]
+    # Every file an action in the graph outputs. bazel-out also holds what
+    # earlier builds in a reused workspace left behind, and the inside of
+    # directory outputs, which is an action's private staging.
+    outputs: set[str]
 
 
 def collect_link_closure(work: Path, flags: list[str]) -> Closure:
@@ -442,8 +443,8 @@ def collect_link_closure(work: Path, flags: list[str]) -> Closure:
     - Find the source file that produced the .o file
     """
     probe = f"//{PROBE_PACKAGE}:probe"
-    # Every action, not just the C++ ones: the directory outputs that mark
-    # staging come from other kinds (the ANTLR run), and the compile, link and
+    # Every action, not just the C++ ones: generated headers come from other
+    # kinds (protoc and ANTLR runs), and the compile, link and
     # archive actions are picked out below by mnemonic.
     expr = f"deps({probe})"
     graph = Aquery(
@@ -482,10 +483,13 @@ def collect_link_closure(work: Path, flags: list[str]) -> Closure:
         needed |= archive_objects[path]
 
     # Reverse mapping from a compile action's output to the source it
-    # compiles.
+    # compiles. `parse_headers` actions share the CppCompile mnemonic but only
+    # syntax-check a header (no `-c`, no object), so they have no entry.
     object_to_source: dict[str, str] = {}
     for action in graph.actions("CppCompile"):
         args = action["arguments"]
+        if "-c" not in args:
+            continue
         object_to_source[graph.path(action["outputIds"][0])] = args[
             args.index("-c") + 1
         ]
@@ -504,7 +508,7 @@ def collect_link_closure(work: Path, flags: list[str]) -> Closure:
         else:
             sources[repo].add(source)
 
-    return Closure(sources, generated, graph.tree_artifact_paths())
+    return Closure(sources, generated, graph.output_paths())
 
 
 def bazel_repo(source: str) -> str:
@@ -721,11 +725,6 @@ def vendor_generated(
     execroot: Path, closure: Closure, filelists: dict[str, list[str]]
 ) -> set[Path]:
     """Copies bazel-generated sources into the crate's gen/."""
-
-    def staged(source: str) -> bool:
-        """Whether a path is inside a directory output, i.e. action staging."""
-        return any(source.startswith(f"{tree}/") for tree in closure.tree_artifacts)
-
     merged: dict[str, set[str]] = collections.defaultdict(set)
     for repo, files in closure.generated.items():
         merged[repo] |= files
@@ -735,9 +734,8 @@ def vendor_generated(
         source = str(path.relative_to(execroot))
         if "-exec" in source.split("/")[1]:
             continue
-        # Files inside a directory output are an action's staging, not sources
-        # of their own.
-        if staged(source):
+        # Only what the current graph outputs; see Closure.outputs.
+        if source not in closure.outputs:
             continue
         merged[bazel_repo(source)].add(source)
     written: set[Path] = set()
@@ -750,7 +748,7 @@ def vendor_generated(
             continue
         gen_dir = CRATE / "gen"
         for source in sorted(files):
-            if staged(source):
+            if source not in closure.outputs:
                 continue
             dest = generated_destination(source)
             payload = (execroot / source).read_bytes()

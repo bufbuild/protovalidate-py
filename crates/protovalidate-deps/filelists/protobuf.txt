@@ -66,6 +66,7 @@ third_party/protobuf/src/google/protobuf/service.cc
 third_party/protobuf/src/google/protobuf/source_context.pb.cc
 third_party/protobuf/src/google/protobuf/struct.pb.cc
 third_party/protobuf/src/google/protobuf/stubs/common.cc
+third_party/protobuf/src/google/protobuf/symbol_checker.cc
 third_party/protobuf/src/google/protobuf/text_format.cc
 third_party/protobuf/src/google/protobuf/timestamp.pb.cc
 third_party/protobuf/src/google/protobuf/type.pb.cc

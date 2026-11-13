@@ -7,8 +7,8 @@
   ],
   "cel_cpp": {
     "archive": "https://github.com/google/cel-cpp/archive/{ref}.tar.gz",
-    "ref": "v0.15.0",
-    "sha256": "095e560911ce84cefb886ad9540ca961fd6d7879de441a864e877e6e5f132b02"
+    "ref": "v0.17.0",
+    "sha256": "466363c499f8484794e1e07034ebb80884d0c40ae97b93fe0d3c27850adc9986"
   },
   "module_overrides": {
     "_comment": [
