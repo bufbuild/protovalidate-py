@@ -21,6 +21,14 @@ description = "Protocol Buffer message validation for Rust"
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = ["cel"]
+# Custom CEL rules, evaluated by cel-cpp, which `protovalidate-deps` builds
+# from source. The standard rules are implemented natively and never need
+# it, so a schema without custom rules can drop the C++ toolchain by
+# disabling this feature.
+cel = ["dep:protovalidate-deps"]
+
 [dependencies]
 protovalidate-deps = { workspace = true, optional = true }
 
@@ -32,14 +40,6 @@ iri-string.workspace = true
 jiff.workspace = true
 percent-encoding.workspace = true
 regex.workspace = true
-
-[features]
-default = ["cel"]
-# Custom CEL rules, evaluated by cel-cpp, which `protovalidate-deps` builds
-# from source. The standard rules are implemented natively and never need
-# it, so a schema without custom rules can drop the C++ toolchain by
-# disabling this feature.
-cel = ["dep:protovalidate-deps"]
 
 [lints]
 workspace = true
