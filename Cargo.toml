@@ -18,6 +18,20 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[lib]
+crate-type = ["cdylib"]
+name = "protovalidate"
+
+[dependencies]
+protovalidate = { workspace = true, features = ["cel"] }
+pyo3 = { version = "0.30.1", features = ["experimental-inspect"] }
+
+[build-dependencies]
+pyo3-build-config = { version = "0.30.1", features = ["resolve-config"] }
+
+[lints]
+workspace = true
+
 [workspace]
 members = ["crates/*"]
 
@@ -45,20 +59,6 @@ regex = "1.13.1"
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 undocumented_unsafe_blocks = "warn"
-
-[lib]
-crate-type = ["cdylib"]
-name = "protovalidate"
-
-[dependencies]
-protovalidate = { workspace = true, features = ["cel"] }
-pyo3 = { version = "0.30.1", features = ["experimental-inspect"] }
-
-[build-dependencies]
-pyo3-build-config = { version = "0.30.1", features = ["resolve-config"] }
-
-[lints]
-workspace = true
 
 [profile.release]
 debug = 0
