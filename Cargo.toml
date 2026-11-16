@@ -23,6 +23,7 @@ crate-type = ["cdylib"]
 name = "protovalidate"
 
 [dependencies]
+foldhash.workspace = true
 protovalidate = { workspace = true, features = ["cel"] }
 pyo3 = { version = "0.30.1", features = ["experimental-inspect"] }
 

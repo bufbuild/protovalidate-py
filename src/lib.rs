@@ -87,7 +87,7 @@ struct Validator {
     imports: Arc<Imports>,
     /// The message classes validated so far, by the address of the class.
     /// Each entry keeps its class alive, so the address is not reused.
-    types: RwLock<HashMap<usize, KnownType>>,
+    types: RwLock<HashMap<usize, KnownType, foldhash::fast::RandomState>>,
 }
 
 /// What validating a message of one class needs, once the rules of the
@@ -137,7 +137,7 @@ impl Validator {
             preregistered,
             constants,
             imports: Arc::new(Imports::resolve(py)?),
-            types: RwLock::new(HashMap::new()),
+            types: RwLock::new(HashMap::default()),
         })
     }
 
