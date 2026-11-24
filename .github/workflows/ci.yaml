@@ -49,12 +49,18 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
       # sccache mis-parses the -Tp that cc passes cl.exe before .cc sources
       # (mozilla/sccache#2062). The uncached sdist job still covers cl.exe.
+      # The runner's standalone LLVM can lag the Clang version the MSVC STL
+      # requires, so use the clang-cl that ships with Visual Studio.
       - name: Use clang-cl
         if: runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
-          echo "CC=clang-cl" >> $GITHUB_ENV
-          echo "CXX=clang-cl" >> $GITHUB_ENV
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $llvm = Join-Path $vs 'VC\Tools\Llvm\x64\bin'
+          & "$llvm\clang-cl.exe" --version
+          Add-Content $env:GITHUB_PATH $llvm
+          Add-Content $env:GITHUB_ENV 'CC=clang-cl'
+          Add-Content $env:GITHUB_ENV 'CXX=clang-cl'
       - name: Setup rust
         run: rustup update
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
