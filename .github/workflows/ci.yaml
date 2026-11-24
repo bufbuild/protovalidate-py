@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: stable
           # We use this to install certain tools defined in poe tasks
@@ -49,15 +49,21 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
       # sccache mis-parses the -Tp that cc passes cl.exe before .cc sources
       # (mozilla/sccache#2062). The uncached sdist job still covers cl.exe.
+      # The runner's standalone LLVM can lag the Clang version the MSVC STL
+      # requires, so use the clang-cl that ships with Visual Studio.
       - name: Use clang-cl
         if: runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
-          echo "CC=clang-cl" >> $GITHUB_ENV
-          echo "CXX=clang-cl" >> $GITHUB_ENV
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $llvm = Join-Path $vs 'VC\Tools\Llvm\x64\bin'
+          & "$llvm\clang-cl.exe" --version
+          Add-Content $env:GITHUB_PATH $llvm
+          Add-Content $env:GITHUB_ENV 'CC=clang-cl'
+          Add-Content $env:GITHUB_ENV 'CXX=clang-cl'
       - name: Setup rust
         run: rustup update
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv sync
@@ -87,7 +93,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
       # uv build first generates the sdist and then builds a wheel from it isolated from the repo.
       # So it is enough to verify the sdist is usable.
       - run: uv build
@@ -102,7 +108,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup rust
         run: rustup update
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           python-version: "3.11"
       - run: uv sync --locked
